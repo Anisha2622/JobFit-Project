@@ -1,46 +1,47 @@
 const Job = require('../models/Job');
-const { analyzeResume } = require('../services/geminiService');
+const { calculateLocalAtsScore } = require('../utils/atsService'); // Corrected Import
 
-// Controller to analyze a batch of resumes for a specific job
+// Helper function to add a delay
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 exports.analyzeBatchResumes = async (req, res) => {
-    // 1. Security check: Ensure user is HR
     if (req.user.userType !== 'HR') {
-        return res.status(403).json({ msg: 'Access denied. Only HR can perform this action.' });
+        return res.status(403).json({ msg: 'Access denied.' });
     }
 
-    // 2. Validate input: Check for files and a jobId
-    if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ msg: 'No resume files were uploaded.' });
-    }
     const { jobId } = req.body;
-    if (!jobId) {
-        return res.status(400).json({ msg: 'A job must be selected for analysis.' });
+    const files = req.files;
+
+    if (!jobId || !files || files.length === 0) {
+        return res.status(400).json({ msg: 'Job ID and at least one resume file are required.' });
     }
 
     try {
-        // 3. Find the job to analyze against
         const job = await Job.findById(jobId);
         if (!job) {
             return res.status(404).json({ msg: 'Job not found.' });
         }
 
-        // 4. Process all uploaded resumes concurrently for efficiency
-        const analysisPromises = req.files.map(async (file) => {
-            const analysisResult = await analyzeResume(file.path, job);
-            return {
+        const results = [];
+        
+        for (const file of files) {
+            console.log(`Analyzing file locally: ${file.originalname}...`);
+            // Corrected function call
+            const score = await calculateLocalAtsScore(file.path, job.skills);
+            results.push({
                 fileName: file.originalname,
-                atsScore: analysisResult ? analysisResult.atsScore : 'Error',
-                summary: analysisResult ? analysisResult.summary : 'Analysis failed for this resume.'
-            };
-        });
+                atsScore: score,
+                summary: `The resume matched ${score}% of the required skills.`
+            });
+            
+            // We no longer need a delay for a local function
+        }
 
-        const results = await Promise.all(analysisPromises);
-
-        // 5. Send the list of analysis results back to the client
-        res.status(200).json(results);
+        res.json(results);
 
     } catch (err) {
         console.error('Batch Analysis Error:', err.message);
         res.status(500).send('Server Error');
     }
 };
+

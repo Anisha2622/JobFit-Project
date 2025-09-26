@@ -1,152 +1,49 @@
-const Application = require('../models/Application');
-const Job = require('../models/Job');
-const { analyzeResume } = require('../services/geminiService');
+const mongoose = require('mongoose');
 
-// @desc    Apply to a job
-// @route   POST /api/applications
-exports.applyToJob = async (req, res) => {
-    if (req.user.userType !== 'Candidate') {
-        return res.status(403).json({ msg: 'Access denied. Only candidates can apply.' });
+const ApplicationSchema = new mongoose.Schema({
+    jobId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Job',
+        required: true
+    },
+    candidateId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    fullName: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true
+    },
+    phone: {
+        type: String,
+        required: true
+    },
+    coverLetter: {
+        type: String
+    },
+    resumeUrl: { 
+        type: String,
+        required: true
+    },
+    skills: [{
+        name: { type: String, required: true },
+        rating: { type: Number, required: true, min: 1, max: 5 }
+    }],
+    status: {
+        type: String,
+        enum: ['Pending', 'Accepted', 'Rejected'],
+        default: 'Pending'
+    },
+    // --- RE-ADDED ATS SCORE FIELD ---
+    atsScore: {
+        type: Number
     }
-    if (!req.file) {
-        return res.status(400).json({ msg: 'Resume is required.' });
-    }
-    
-    const skills = JSON.parse(req.body.skills);
-    const { jobId, fullName, email, phone, coverLetter } = req.body;
+}, { timestamps: true });
 
-    try {
-        const job = await Job.findById(jobId);
-        if (!job) {
-            return res.status(404).json({ msg: 'Job not found.' });
-        }
-
-        const newApplication = new Application({
-            jobId,
-            candidateId: req.user.id,
-            fullName,
-            email,
-            phone,
-            coverLetter,
-            skills,
-            resumeUrl: req.file.path
-        });
-
-        await newApplication.save();
-
-        // Trigger AI analysis
-        const analysisResult = await analyzeResume(req.file.path, job, skills);
-        if (analysisResult) {
-            newApplication.atsScore = analysisResult.atsScore;
-            newApplication.summary = analysisResult.summary;
-            await newApplication.save();
-        }
-
-        res.status(201).json({ msg: 'Application submitted successfully!' });
-
-    } catch (err) {
-        console.error('Apply to Job Error:', err.message);
-        res.status(500).send('Server Error');
-    }
-};
-
-// @desc    Get all applications for an HR user
-// @route   GET /api/applications/hr
-exports.getApplicationsForHR = async (req, res) => {
-    if (req.user.userType !== 'HR') {
-        return res.status(403).json({ msg: 'Access denied.' });
-    }
-    try {
-        const jobsPostedByHR = await Job.find({ postedBy: req.user.id }).select('_id');
-        const jobIds = jobsPostedByHR.map(job => job._id);
-        const applications = await Application.find({ jobId: { $in: jobIds } })
-            .populate('jobId', 'jobTitle')
-            .sort({ createdAt: -1 });
-        res.json(applications);
-    } catch (err) {
-        console.error('Get Applications for HR Error:', err.message);
-        res.status(500).send('Server Error');
-    }
-};
-
-// @desc    Update an application's status
-// @route   PATCH /api/applications/:id/status
-exports.updateApplicationStatus = async (req, res) => {
-    if (req.user.userType !== 'HR') {
-        return res.status(403).json({ msg: 'Access denied.' });
-    }
-    const { status } = req.body;
-    const { id } = req.params;
-    if (!['Accepted', 'Rejected'].includes(status)) {
-        return res.status(400).json({ msg: 'Invalid status.' });
-    }
-    try {
-        const application = await Application.findById(id);
-        if (!application) {
-            return res.status(404).json({ msg: 'Application not found.' });
-        }
-        const job = await Job.findById(application.jobId);
-        if (job.postedBy.toString() !== req.user.id) {
-            return res.status(401).json({ msg: 'User not authorized.' });
-        }
-        application.status = status;
-        await application.save();
-        res.json(application);
-    } catch (err) {
-        console.error('Update Status Error:', err.message);
-        res.status(500).send('Server Error');
-    }
-};
-
-// @desc    Get all applications for the current candidate
-// @route   GET /api/applications/me
-exports.getMyApplications = async (req, res) => {
-    if (req.user.userType !== 'Candidate') {
-        return res.status(403).json({ msg: 'Access denied.' });
-    }
-    try {
-        const applications = await Application.find({ candidateId: req.user.id })
-            .populate('jobId', 'jobTitle companyName')
-            .sort({ createdAt: -1 });
-        res.json(applications);
-    } catch (err) {
-        console.error('Get My Applications Error:', err.message);
-        res.status(500).send('Server Error');
-    }
-};
-
-// @desc    Get analytics for an HR user
-// @route   GET /api/applications/analytics
-exports.getAnalytics = async (req, res) => {
-    if (req.user.userType !== 'HR') {
-        return res.status(403).json({ msg: 'Access denied.' });
-    }
-
-    try {
-        const jobsPostedByHR = await Job.find({ postedBy: req.user.id }).select('_id');
-        const jobIds = jobsPostedByHR.map(job => job._id);
-
-        const applications = await Application.find({ jobId: { $in: jobIds } });
-
-        const totalApplications = applications.length;
-        
-        const scoredApplications = applications.filter(app => typeof app.atsScore === 'number');
-        const averageScore = scoredApplications.length > 0
-            ? scoredApplications.reduce((acc, curr) => acc + curr.atsScore, 0) / scoredApplications.length
-            : 0;
-            
-        const acceptedApplications = applications.filter(app => app.status === 'Accepted').length;
-        const acceptanceRate = totalApplications > 0 ? acceptedApplications / totalApplications : 0;
-
-        res.json({
-            totalApplications,
-            averageScore,
-            acceptanceRate
-        });
-
-    } catch (err) {
-        console.error('Get Analytics Error:', err.message);
-        res.status(500).send('Server Error');
-    }
-};
+module.exports = mongoose.models.Application || mongoose.model('Application', ApplicationSchema);
 

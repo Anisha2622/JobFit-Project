@@ -1,82 +1,148 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const fs = require('fs');
-const pdf = require('pdf-parse');
+const Application = require('../models/Application');
+const Job = require('../models/Job');
+const { calculateLocalAtsScore } = require('../utils/atsService'); // Corrected Import
 
-// Initialize the Google Generative AI client
-if (!process.env.GEMINI_API_KEY) {
-    console.error("FATAL ERROR: GEMINI_API_KEY is not set in the .env file.");
-}
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// Upgraded function to analyze a resume
-async function analyzeResume(resumePath, job, candidateSkills = []) {
-    try {
-        // --- Added a check to ensure the API key is present ---
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error("GEMINI_API_KEY is not configured on the server.");
-        }
-
-        console.log(`[AI Service] Reading resume: ${resumePath}`);
-        if (!fs.existsSync(resumePath)) {
-            throw new Error(`File not found at path: ${resumePath}`);
-        }
-        
-        const dataBuffer = fs.readFileSync(resumePath);
-        const data = await pdf(dataBuffer);
-        const resumeText = data.text;
-        console.log('[AI Service] Resume text extracted successfully.');
-
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-        // Construct the prompt for the AI
-        const prompt = `
-            Analyze the following resume against the provided job description. If the candidate's self-reported skills are provided, consider them as well.
-            Return a clean JSON object with two keys: "atsScore" and "summary". Do not include any other text or markdown formatting.
-
-            - "atsScore": An integer between 0 and 100 representing how well the RESUME TEXT matches the JOB REQUIREMENTS.
-            - "summary": A brief, 2-3 sentence summary explaining the score, highlighting the candidate's key strengths and weaknesses for this role.
-
-            **Job Description:**
-            - Title: ${job.jobTitle}
-            - Experience Required: ${job.experience}
-            - Required Skills: ${job.skills.map(s => `${s.name} (Importance: ${s.rating}/5)`).join(', ')}
-
-            **Candidate's Self-Reported Skills (if provided):**
-            - ${candidateSkills.length > 0 ? candidateSkills.map(s => `${s.name} (Self-Rated: ${s.rating}/5)`).join(', ') : 'Not provided.'}
-
-            **Resume Content:**
-            ${resumeText}
-
-            **JSON Output:**
-        `;
-
-        console.log('[AI Service] Sending prompt to Gemini...');
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-        console.log('[AI Service] Received response from Gemini.');
-        
-        const cleanedJsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        const analysisResult = JSON.parse(cleanedJsonString);
-
-        return analysisResult;
-
-    } catch (error) {
-        // --- ENHANCED ERROR LOGGING ---
-        console.error('-----------------------------------------');
-        console.error('---     ERROR IN GEMINI ANALYSIS      ---');
-        console.error('-----------------------------------------');
-        console.error('Timestamp:', new Date().toISOString());
-        console.error('Error Message:', error.message);
-        if (error.stack) {
-            console.error('Stack Trace:', error.stack);
-        }
-        console.error('-----------------------------------------');
-        
-        // Return a more descriptive error message
-        return { atsScore: 'Error', summary: `Analysis failed: ${error.message}` };
+// @desc    Apply to a job
+// @route   POST /api/applications
+exports.applyToJob = async (req, res) => {
+    if (req.user.userType !== 'Candidate') {
+        return res.status(403).json({ msg: 'Access denied. Only candidates can apply.' });
     }
-}
+    if (!req.file) {
+        return res.status(400).json({ msg: 'Resume is required.' });
+    }
+    
+    const skills = JSON.parse(req.body.skills);
+    const { jobId, fullName, email, phone, coverLetter } = req.body;
 
-module.exports = { analyzeResume };
+    try {
+        const job = await Job.findById(jobId);
+        if (!job) {
+            return res.status(404).json({ msg: 'Job not found.' });
+        }
+
+        const newApplication = new Application({
+            jobId,
+            candidateId: req.user.id,
+            fullName,
+            email,
+            phone,
+            coverLetter,
+            skills,
+            resumeUrl: req.file.path
+        });
+
+        // --- TRIGGER LOCAL ATS CALCULATION ---
+        const atsScore = await calculateLocalAtsScore(req.file.path, job.skills);
+        newApplication.atsScore = atsScore;
+
+        await newApplication.save();
+
+        res.status(201).json({ msg: 'Application submitted successfully!' });
+
+    } catch (err) {
+        console.error('Apply to Job Error:', err.message);
+        res.status(500).send('Server Error');
+    }
+};
+
+// @desc    Get all applications for an HR user
+// @route   GET /api/applications/hr
+exports.getApplicationsForHR = async (req, res) => {
+    if (req.user.userType !== 'HR') {
+        return res.status(403).json({ msg: 'Access denied.' });
+    }
+    try {
+        const jobsPostedByHR = await Job.find({ postedBy: req.user.id }).select('_id');
+        const jobIds = jobsPostedByHR.map(job => job._id);
+        const applications = await Application.find({ jobId: { $in: jobIds } })
+            .populate('jobId', 'jobTitle')
+            .sort({ createdAt: -1 });
+        res.json(applications);
+    } catch (err) {
+        console.error('Get Applications for HR Error:', err.message);
+        res.status(500).send('Server Error');
+    }
+};
+
+// @desc    Update an application's status
+// @route   PATCH /api/applications/:id/status
+exports.updateApplicationStatus = async (req, res) => {
+    if (req.user.userType !== 'HR') {
+        return res.status(403).json({ msg: 'Access denied.' });
+    }
+    const { status } = req.body;
+    const { id } = req.params;
+    if (!['Accepted', 'Rejected'].includes(status)) {
+        return res.status(400).json({ msg: 'Invalid status.' });
+    }
+    try {
+        const application = await Application.findById(id);
+        if (!application) {
+            return res.status(404).json({ msg: 'Application not found.' });
+        }
+        const job = await Job.findById(application.jobId);
+        if (job.postedBy.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'User not authorized.' });
+        }
+        application.status = status;
+        await application.save();
+        res.json(application);
+    } catch (err) {
+        console.error('Update Status Error:', err.message);
+        res.status(500).send('Server Error');
+    }
+};
+
+// @desc    Get all applications for the current candidate
+// @route   GET /api/applications/me
+exports.getMyApplications = async (req, res) => {
+    if (req.user.userType !== 'Candidate') {
+        return res.status(403).json({ msg: 'Access denied.' });
+    }
+    try {
+        const applications = await Application.find({ candidateId: req.user.id })
+            .populate('jobId', 'jobTitle companyName')
+            .sort({ createdAt: -1 });
+        res.json(applications);
+    } catch (err) {
+        console.error('Get My Applications Error:', err.message);
+        res.status(500).send('Server Error');
+    }
+};
+
+// @desc    Get analytics for an HR user
+// @route   GET /api/applications/analytics
+exports.getAnalytics = async (req, res) => {
+    if (req.user.userType !== 'HR') {
+        return res.status(403).json({ msg: 'Access denied.' });
+    }
+
+    try {
+        const jobsPostedByHR = await Job.find({ postedBy: req.user.id }).select('_id');
+        const jobIds = jobsPostedByHR.map(job => job._id);
+
+        const applications = await Application.find({ jobId: { $in: jobIds } });
+
+        const totalApplications = applications.length;
+        
+        const scoredApplications = applications.filter(app => typeof app.atsScore === 'number');
+        const averageScore = scoredApplications.length > 0
+            ? scoredApplications.reduce((acc, curr) => acc + curr.atsScore, 0) / scoredApplications.length
+            : 0;
+            
+        const acceptedApplications = applications.filter(app => app.status === 'Accepted').length;
+        const acceptanceRate = totalApplications > 0 ? acceptedApplications / totalApplications : 0;
+
+        res.json({
+            totalApplications,
+            averageScore,
+            acceptanceRate
+        });
+
+    } catch (err) {
+        console.error('Get Analytics Error:', err.message);
+        res.status(500).send('Server Error');
+    }
+};
 
