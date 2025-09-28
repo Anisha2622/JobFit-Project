@@ -1,9 +1,8 @@
-const Job = require('../models/Job');
-const { calculateLocalAtsScore } = require('../utils/atsService'); // Corrected Import
+const Job = require('../models/job');
+const { calculateAtsFromResumeText } = require('../utils/atsService');
 
-// Helper function to add a delay
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
+// @desc    Analyze a batch of resumes for a specific job
+// @route   POST /api/analyze/resumes
 exports.analyzeBatchResumes = async (req, res) => {
     if (req.user.userType !== 'HR') {
         return res.status(403).json({ msg: 'Access denied.' });
@@ -25,16 +24,13 @@ exports.analyzeBatchResumes = async (req, res) => {
         const results = [];
         
         for (const file of files) {
-            console.log(`Analyzing file locally: ${file.originalname}...`);
-            // Corrected function call
-            const score = await calculateLocalAtsScore(file.path, job.skills);
+            console.log(`Analyzing file with text scanner: ${file.originalname}...`);
+            const score = await calculateAtsFromResumeText(file.path, job.skills);
             results.push({
                 fileName: file.originalname,
                 atsScore: score,
-                summary: `The resume matched ${score}% of the required skills.`
+                summary: `The resume matched ${score}% of the required skills based on text analysis.`
             });
-            
-            // We no longer need a delay for a local function
         }
 
         res.json(results);

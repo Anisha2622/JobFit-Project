@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 
-// Define the structure for a single skill with a rating
+// A sub-schema to define the structure for each skill
 const SkillSchema = new mongoose.Schema({
-    skillName: {
+    name: {
         type: String,
         required: true
     },
@@ -24,11 +24,12 @@ const JobSchema = new mongoose.Schema({
         required: true
     },
     experience: {
-        type: String,
+        type: String, 
         required: true
     },
+    // The 'skills' field is an array of SkillSchema objects
     skills: {
-        type: [SkillSchema], // Use the new SkillSchema
+        type: [SkillSchema], 
         required: true
     },
     jobDescription: {
@@ -37,7 +38,7 @@ const JobSchema = new mongoose.Schema({
     },
     postedBy: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
+        ref: 'User', 
         required: true
     }
 }, { timestamps: true });

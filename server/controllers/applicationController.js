@@ -1,6 +1,7 @@
 const Application = require('../models/Application');
-const Job = require('../models/Job');
-const { calculateLocalAtsScore } = require('../utils/atsService'); // Corrected Import
+const Job = require('../models/job');
+// --- CORRECTED IMPORT ---
+const { calculateAtsFromSkillMatch } = require('../utils/atsService');
 
 // @desc    Apply to a job
 // @route   POST /api/applications
@@ -32,8 +33,8 @@ exports.applyToJob = async (req, res) => {
             resumeUrl: req.file.path
         });
 
-        // --- TRIGGER LOCAL ATS CALCULATION ---
-        const atsScore = await calculateLocalAtsScore(req.file.path, job.skills);
+        // --- TRIGGER LOCAL ATS CALCULATION USING SKILL MATCH ---
+        const atsScore = calculateAtsFromSkillMatch(job.skills, skills);
         newApplication.atsScore = atsScore;
 
         await newApplication.save();

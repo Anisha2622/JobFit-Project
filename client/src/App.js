@@ -58,7 +58,6 @@ function App() {
         if (storedToken) {
             try {
                 const decodedUser = jwtDecode(storedToken);
-                // Check if token is expired
                 const currentTime = Date.now() / 1000;
                 if (decodedUser.exp < currentTime) {
                     handleLogout();
@@ -97,7 +96,6 @@ function App() {
         return <CandidateDashboard onLogout={handleLogout} token={token} />;
     }
 
-    // Fallback in case of an invalid state
     return <AuthPage onLogin={handleLogin} />;
 }
 
@@ -105,7 +103,7 @@ function App() {
 // --- Authentication Pages ---
 
 const AuthPage = ({ onLogin }) => {
-    const [view, setView] = useState('landing'); // landing, hrLogin, candidateLogin, hrRegister, candidateRegister
+    const [view, setView] = useState('landing'); 
 
     const renderContent = () => {
         switch (view) {
@@ -132,11 +130,11 @@ const AuthPage = ({ onLogin }) => {
 const LandingPage = ({ setView }) => (
     <div className="text-center">
         <h1 className="text-4xl font-bold text-gray-800 mb-2">JobFit</h1>
-        <p className="text-lg text-gray-600 mb-8">AI-Powered Resume Analysis Platform</p>
+        <p className="text-lg text-gray-600 mb-8">Resume Analysis Platform</p>
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
             <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200">
                 <h2 className="text-2xl font-semibold text-gray-700 mb-4">HR Portal</h2>
-                <p className="text-gray-500 mb-6">Create jobs, upload resumes, and analyze candidates with the power of AI.</p>
+                <p className="text-gray-500 mb-6">Create jobs, upload resumes, and analyze candidates.</p>
                 <div className="space-y-4">
                     <Button onClick={() => setView('hrLogin')}>Login as HR</Button>
                     <Button onClick={() => setView('hrRegister')} variant="secondary">Register as HR</Button>
@@ -247,23 +245,47 @@ const RegisterPage = ({ userType, onLogin, setView }) => {
 };
 
 // --- HR Dashboard ---
-
 const HRDashboard = ({ onLogout, token }) => {
-    const [activeTab, setActiveTab] = useState('createJob');
+    const [activeTab, setActiveTab] = useState('dashboard');
+    const [jobs, setJobs] = useState([]);
+    const [isLoadingJobs, setIsLoadingJobs] = useState(true);
+    
     const tabs = {
+        dashboard: 'Dashboard',
         createJob: 'Create Job',
-        uploadResumes: 'Upload Resumes',
-        analytics: 'Analytics',
         applications: 'Applications',
     };
 
+    // --- LIFTED STATE: This function now lives in the parent component ---
+    const fetchJobs = useCallback(async () => {
+        setIsLoadingJobs(true);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/jobs/my-jobs`, {
+                headers: { 'x-auth-token': token }
+            });
+            setJobs(res.data);
+        } catch (err) {
+            console.error("Failed to fetch HR jobs");
+        } finally {
+            setIsLoadingJobs(false);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        fetchJobs();
+    }, [fetchJobs]);
+
     const renderTabContent = () => {
         switch (activeTab) {
-            case 'createJob': return <CreateJob token={token} />;
-            case 'uploadResumes': return <UploadResumes token={token} />;
-            case 'analytics': return <Analytics token={token} />;
-            case 'applications': return <Applications token={token} />;
-            default: return null;
+            case 'dashboard': 
+                return <HRJobDashboard jobs={jobs} isLoading={isLoadingJobs} />;
+            case 'createJob': 
+                // Pass the fetchJobs function down as a prop
+                return <CreateJob token={token} onJobCreated={fetchJobs} />;
+            case 'applications': 
+                return <Applications token={token} />;
+            default: 
+                return null;
         }
     };
 
@@ -303,7 +325,48 @@ const HRDashboard = ({ onLogout, token }) => {
     );
 };
 
-const CreateJob = ({ token }) => {
+// --- This component now receives its data via props ---
+const HRJobDashboard = ({ jobs, isLoading }) => {
+    if (isLoading) return <div className="text-center p-4">Loading your job postings...</div>;
+
+    if (jobs.length === 0) {
+        return <div className="bg-white p-8 rounded-lg shadow-md text-center">You haven't created any jobs yet. Click 'Create Job' to get started.</div>;
+    }
+
+    return (
+        <div className="space-y-6">
+            <h2 className="text-2xl font-semibold text-gray-800">Your Job Postings</h2>
+            {jobs.map(job => (
+                <div key={job._id} className="bg-white p-6 rounded-lg shadow-md">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-800">{job.jobTitle}</h3>
+                            <p className="text-md text-gray-600">{job.companyName}</p>
+                            <p className="text-sm text-gray-500 mt-2">Posted on: {new Date(job.createdAt).toLocaleDateString()}</p>
+                        </div>
+                        <div className="flex space-x-4 text-center">
+                            <div>
+                                <p className="text-2xl font-bold text-blue-600">{job.applicationStats.total}</p>
+                                <p className="text-xs text-gray-500">Total Apps</p>
+                            </div>
+                            <div>
+                                <p className="text-2xl font-bold text-green-600">{job.applicationStats.accepted}</p>
+                                <p className="text-xs text-gray-500">Accepted</p>
+                            </div>
+                            <div>
+                                <p className="text-2xl font-bold text-red-600">{job.applicationStats.rejected}</p>
+                                <p className="text-xs text-gray-500">Rejected</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// --- This component now calls onJobCreated after a successful submission ---
+const CreateJob = ({ token, onJobCreated }) => {
     const [formData, setFormData] = useState({
         companyName: '', jobTitle: '', experience: '', jobDescription: ''
     });
@@ -314,7 +377,7 @@ const CreateJob = ({ token }) => {
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
-
+    
     const handleSkillChange = (index, e) => {
         const newSkills = [...skills];
         newSkills[index].name = e.target.value;
@@ -326,7 +389,7 @@ const CreateJob = ({ token }) => {
         newSkills[index].rating = newRating;
         setSkills(newSkills);
     };
-    
+
     const addSkill = () => {
         setSkills([...skills, { name: '', rating: 3 }]);
     };
@@ -347,6 +410,7 @@ const CreateJob = ({ token }) => {
             setMessage('Job created successfully!');
             setFormData({ companyName: '', jobTitle: '', experience: '', jobDescription: '' });
             setSkills([{ name: '', rating: 3 }]);
+            onJobCreated(); // Tell the parent component to refresh its job list
         } catch (err) {
             setMessage(err.response?.data?.msg || 'Failed to create job.');
         } finally {
@@ -399,153 +463,6 @@ const CreateJob = ({ token }) => {
     );
 };
 
-const UploadResumes = ({ token }) => {
-    const [jobs, setJobs] = useState([]);
-    const [selectedJob, setSelectedJob] = useState('');
-    const [files, setFiles] = useState(null);
-    const [results, setResults] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        const fetchJobs = async () => {
-            try {
-                const res = await axios.get(`${API_BASE_URL}/api/jobs`, {
-                    headers: { 'x-auth-token': token }
-                });
-                setJobs(res.data);
-            } catch (err) {
-                console.error("Failed to fetch jobs");
-            }
-        };
-        fetchJobs();
-    }, [token]);
-
-    const handleFileChange = (e) => {
-        setFiles(e.target.files);
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!selectedJob || !files) {
-            setError('Please select a job and choose resume files to upload.');
-            return;
-        }
-        setError('');
-        setIsLoading(true);
-        setResults([]);
-
-        const formData = new FormData();
-        formData.append('jobId', selectedJob);
-        for (let i = 0; i < files.length; i++) {
-            formData.append('resumes', files[i]);
-        }
-
-        try {
-            const res = await axios.post(`${API_BASE_URL}/api/analyze/resumes`, formData, {
-                headers: {
-                    'x-auth-token': token,
-                    'Content-Type': 'multipart/form-data'
-                }
-            });
-            setResults(res.data);
-        } catch (err) {
-            setError(err.response?.data?.msg || 'Analysis failed. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <div className="bg-white p-8 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-4">Upload Resumes for Analysis</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label htmlFor="job-select" className="block text-sm font-medium text-gray-700">Select Job</label>
-                    <select
-                        id="job-select"
-                        value={selectedJob}
-                        onChange={(e) => setSelectedJob(e.target.value)}
-                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                    >
-                        <option value="">--Please choose a job--</option>
-                        {jobs.map(job => (
-                            <option key={job._id} value={job._id}>{job.jobTitle} at {job.companyName}</option>
-                        ))}
-                    </select>
-                </div>
-                <div>
-                    <label htmlFor="resume-upload" className="block text-sm font-medium text-gray-700">Upload Resumes (up to 10)</label>
-                    <input id="resume-upload" type="file" multiple onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                </div>
-                <ErrorMessage message={error} />
-                <Button type="submit" disabled={isLoading}>{isLoading ? 'Analyzing...' : 'Analyze Resumes'}</Button>
-            </form>
-
-            {results.length > 0 && (
-                <div className="mt-6">
-                    <h3 className="text-lg font-medium">Analysis Results</h3>
-                    <ul className="mt-4 space-y-3">
-                        {results.map((result, index) => (
-                            <li key={index} className="bg-gray-50 p-4 rounded-md border">
-                                <div className="flex justify-between items-center">
-                                    <p className="font-medium text-gray-800">{result.fileName}</p>
-                                    <p className={`font-bold text-lg ${result.atsScore > 75 ? 'text-green-600' : result.atsScore > 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                        ATS Score: {result.atsScore}
-                                    </p>
-                                </div>
-                                <p className="text-sm text-gray-600 mt-2">{result.summary}</p>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-        </div>
-    );
-};
-
-
-const Analytics = ({ token }) => {
-    const [stats, setStats] = useState({ totalApplications: 0, averageScore: 0, acceptanceRate: 0 });
-    const [isLoading, setIsLoading] = useState(true);
-    
-    useEffect(() => {
-        const fetchAnalytics = async () => {
-            setIsLoading(true);
-            try {
-                const res = await axios.get(`${API_BASE_URL}/api/applications/analytics`, {
-                    headers: { 'x-auth-token': token }
-                });
-                setStats(res.data);
-            } catch (err) {
-                console.error("Failed to fetch analytics");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchAnalytics();
-    }, [token]);
-
-    if (isLoading) return <div className="text-center p-4">Loading analytics...</div>;
-
-    return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow-md text-center">
-                <h3 className="text-lg font-medium text-gray-500">Total Applications</h3>
-                <p className="mt-2 text-4xl font-bold text-gray-900">{stats.totalApplications}</p>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow-md text-center">
-                <h3 className="text-lg font-medium text-gray-500">Average ATS Score</h3>
-                <p className="mt-2 text-4xl font-bold text-gray-900">{stats.averageScore.toFixed(1)}</p>
-            </div>
-             <div className="bg-white p-6 rounded-lg shadow-md text-center">
-                <h3 className="text-lg font-medium text-gray-500">Acceptance Rate</h3>
-                <p className="mt-2 text-4xl font-bold text-gray-900">{(stats.acceptanceRate * 100).toFixed(1)}%</p>
-            </div>
-        </div>
-    );
-};
-
 const Applications = ({ token }) => {
     const [applications, setApplications] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -573,7 +490,7 @@ const Applications = ({ token }) => {
             await axios.patch(`${API_BASE_URL}/api/applications/${id}/status`, { status }, {
                 headers: { 'x-auth-token': token }
             });
-            fetchApplications(); // Refresh the list
+            fetchApplications();
         } catch (err) {
             alert('Failed to update status.');
         }
@@ -592,7 +509,7 @@ const Applications = ({ token }) => {
                             <div>
                                 <p className="font-bold text-lg text-gray-800">{app.fullName}</p>
                                 <p className="text-sm text-gray-600">Applying for: {app.jobId.jobTitle}</p>
-                                <p className="text-sm text-gray-500 mt-1">ATS Score: <span className="font-bold">{app.atsScore || 'N/A'}</span></p>
+                                <p className="text-sm text-gray-500 mt-1">ATS Score: <span className="font-bold">{app.atsScore === undefined ? 'N/A' : app.atsScore}</span></p>
                             </div>
                             <div className="flex items-center space-x-2 mt-2 md:mt-0">
                                 <a href={`${API_BASE_URL}/${app.resumeUrl.replace(/\\/g, '/')}`} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">Download Resume</a>
@@ -613,10 +530,10 @@ const Applications = ({ token }) => {
     );
 };
 
-// --- Candidate Dashboard ---
 
+// --- Candidate Dashboard ---
 const CandidateDashboard = ({ onLogout, token }) => {
-    const [view, setView] = useState('jobList'); // jobList, jobDetails, applyForm, myApplications
+    const [view, setView] = useState('jobList'); 
     const [selectedJob, setSelectedJob] = useState(null);
 
     const handleApplyNow = (job) => {
@@ -694,7 +611,7 @@ const JobList = ({ onApplyNow }) => {
                         <div className="mt-2 flex flex-wrap gap-2">
                             {job.skills && job.skills.map((skill, index) => {
                                 const skillName = typeof skill === 'object' ? skill.name || skill.skillName : skill;
-                                if (!skillName) return null; // Don't render if skillName is not available
+                                if (!skillName) return null;
                                 return (
                                     <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">
                                         {skillName}
@@ -725,7 +642,7 @@ const JobDetails = ({ job, setView }) => (
              {job.skills && job.skills.map((skill, index) => {
                 const skillName = typeof skill === 'object' ? skill.name || skill.skillName : skill;
                 const skillRating = typeof skill === 'object' && skill.rating ? `(${skill.rating}/5)` : '';
-                if (!skillName) return null; // Don't render if skillName is not available
+                if (!skillName) return null;
                 return (
                     <span key={index} className="px-3 py-1 bg-gray-200 text-gray-800 text-sm font-medium rounded-full">
                         {skillName} {skillRating}
@@ -793,7 +710,7 @@ const ApplicationForm = ({ job, setView, token }) => {
         applicationData.append('phone', formData.phone);
         applicationData.append('coverLetter', formData.coverLetter);
         applicationData.append('resume', resume);
-        applicationData.append('skills', JSON.stringify(skills)); // Send skills data
+        applicationData.append('skills', JSON.stringify(skills));
 
         try {
             await axios.post(`${API_BASE_URL}/api/applications`, applicationData, {
@@ -821,7 +738,6 @@ const ApplicationForm = ({ job, setView, token }) => {
                 <InputField id="email" name="email" type="email" placeholder="Email Address" value={formData.email} onChange={handleChange} />
                 <InputField id="phone" name="phone" type="tel" placeholder="Phone Number" value={formData.phone} onChange={handleChange} />
                 
-                {/* --- NEW SKILLS SECTION FOR CANDIDATE --- */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Your Skills</label>
                     {skills.map((skill, index) => (

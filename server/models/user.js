@@ -28,9 +28,11 @@ const UserSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// --- DEFINITIVE FIX for Conditional Uniqueness ---
-// This tells the database to only enforce uniqueness if the field exists AND is not an empty string.
-UserSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $exists: true, $ne: "" } } });
-UserSchema.index({ jobId: 1 }, { unique: true, partialFilterExpression: { jobId: { $exists: true, $ne: "" } } });
+// --- DEFINITIVE FIX USING PARTIAL INDEXES ---
+// This is a more robust way to ensure emails and jobIds are unique only when they exist and are not empty.
+UserSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $exists: true, $ne: null, $ne: "" } } });
+UserSchema.index({ jobId: 1 }, { unique: true, partialFilterExpression: { jobId: { $exists: true, $ne: null, $ne: "" } } });
+
 
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema);
+

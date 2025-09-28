@@ -1,10 +1,10 @@
-const User = require('../models/user');
+const User = require('../models/user'); // Corrected file path casing
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 // Controller function to register a user
 exports.register = async (req, res) => {
-    console.log('Register endpoint hit with body:', req.body); // Debug log
+    console.log('Register endpoint hit with body:', req.body);
     const { userType, companyName, jobId, password, fullName, email } = req.body;
 
     try {
@@ -26,7 +26,6 @@ exports.register = async (req, res) => {
         }
 
         if (user) {
-            console.log('User already exists.'); // Debug log
             return res.status(400).json({ msg: 'User already exists.' });
         }
 
@@ -36,7 +35,7 @@ exports.register = async (req, res) => {
         newUser.password = await bcrypt.hash(password, salt);
 
         await newUser.save();
-        console.log('New user saved to database:', newUser); // Debug log
+        console.log('New user saved to database:', newUser);
 
         const payload = {
             user: {
@@ -51,20 +50,19 @@ exports.register = async (req, res) => {
             { expiresIn: '5h' },
             (err, token) => {
                 if (err) throw err;
-                console.log('Token generated, sending to client.'); // Debug log
                 res.status(201).json({ token });
             }
         );
 
     } catch (error) {
-        console.error('REGISTRATION ERROR:', error.message); // Detailed error log
+        console.error('REGISTRATION ERROR:', error.message);
         res.status(500).send('Server Error');
     }
 };
 
 // Controller function to log in a user
 exports.login = async (req, res) => {
-    console.log('Login endpoint hit with body:', req.body); // Debug log
+    console.log('Login endpoint hit with body:', req.body);
     const { userType, jobId, email, password } = req.body;
 
     try {
@@ -73,13 +71,13 @@ exports.login = async (req, res) => {
         user = await User.findOne(identifier);
 
         if (!user) {
-            console.log('Login failed: User not found.'); // Debug log
+            console.log('Login failed: User not found.');
             return res.status(400).json({ msg: 'Invalid credentials.' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            console.log('Login failed: Password does not match.'); // Debug log
+            console.log('Login failed: Password does not match.');
             return res.status(400).json({ msg: 'Invalid credentials.' });
         }
 
@@ -96,13 +94,14 @@ exports.login = async (req, res) => {
             { expiresIn: '5h' },
             (err, token) => {
                 if (err) throw err;
-                console.log('Login successful, token generated.'); // Debug log
+                console.log('Login successful, token generated.');
                 res.json({ token });
             }
         );
 
     } catch (error) {
-        console.error('LOGIN ERROR:', error.message); // Detailed error log
+        console.error('LOGIN ERROR:', error.message);
         res.status(500).send('Server Error');
     }
 };
+
