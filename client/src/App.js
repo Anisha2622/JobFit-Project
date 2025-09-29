@@ -134,7 +134,7 @@ const LandingPage = ({ setView }) => (
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
             <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200">
                 <h2 className="text-2xl font-semibold text-gray-700 mb-4">HR Portal</h2>
-                <p className="text-gray-500 mb-6">Create jobs, upload resumes, and analyze candidates.</p>
+                <p className="text-gray-500 mb-6">Create jobs, apply, and analyze candidates.</p>
                 <div className="space-y-4">
                     <Button onClick={() => setView('hrLogin')}>Login as HR</Button>
                     <Button onClick={() => setView('hrRegister')} variant="secondary">Register as HR</Button>
@@ -246,17 +246,17 @@ const RegisterPage = ({ userType, onLogin, setView }) => {
 
 // --- HR Dashboard ---
 const HRDashboard = ({ onLogout, token }) => {
-    const [activeTab, setActiveTab] = useState('dashboard');
+    const [view, setView] = useState('dashboard');
     const [jobs, setJobs] = useState([]);
     const [isLoadingJobs, setIsLoadingJobs] = useState(true);
     
     const tabs = {
         dashboard: 'Dashboard',
         createJob: 'Create Job',
+        uploadResumes: 'Upload Resumes',
         applications: 'Applications',
     };
 
-    // --- LIFTED STATE: This function now lives in the parent component ---
     const fetchJobs = useCallback(async () => {
         setIsLoadingJobs(true);
         try {
@@ -272,18 +272,23 @@ const HRDashboard = ({ onLogout, token }) => {
     }, [token]);
 
     useEffect(() => {
-        fetchJobs();
-    }, [fetchJobs]);
+        if (view === 'dashboard' || view === 'uploadResumes') {
+            fetchJobs();
+        }
+    }, [view, fetchJobs]);
 
     const renderTabContent = () => {
-        switch (activeTab) {
+        switch (view) {
             case 'dashboard': 
                 return <HRJobDashboard jobs={jobs} isLoading={isLoadingJobs} />;
             case 'createJob': 
-                // Pass the fetchJobs function down as a prop
-                return <CreateJob token={token} onJobCreated={fetchJobs} />;
+                return <CreateJob token={token} onJobCreated={() => { setView('dashboard'); fetchJobs(); }} />;
+            case 'uploadResumes':
+                return <UploadResumes token={token} jobs={jobs} isLoadingJobs={isLoadingJobs} />;
             case 'applications': 
                 return <Applications token={token} />;
+            case 'profile':
+                return <ProfilePage token={token} userType="HR" />;
             default: 
                 return null;
         }
@@ -294,30 +299,33 @@ const HRDashboard = ({ onLogout, token }) => {
             <header className="bg-white shadow-sm">
                 <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-gray-900">HR Dashboard</h1>
-                    <div>
+                    <div className="flex items-center space-x-4">
+                        <button onClick={() => setView('profile')} className="text-sm font-medium text-gray-600 hover:text-blue-500">Profile</button>
                         <button onClick={onLogout} className="text-sm font-medium text-blue-600 hover:text-blue-500">Logout</button>
                     </div>
                 </div>
             </header>
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
                 <div className="px-4 py-6 sm:px-0">
-                    <div className="border-b border-gray-200">
-                        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                            {Object.entries(tabs).map(([key, value]) => (
-                                <button
-                                    key={key}
-                                    onClick={() => setActiveTab(key)}
-                                    className={`${
-                                        activeTab === key
-                                            ? 'border-blue-500 text-blue-600'
-                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-                                >
-                                    {value}
-                                </button>
-                            ))}
-                        </nav>
-                    </div>
+                    {view !== 'profile' && (
+                         <div className="border-b border-gray-200">
+                            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                                {Object.entries(tabs).map(([key, value]) => (
+                                    <button
+                                        key={key}
+                                        onClick={() => setView(key)}
+                                        className={`${
+                                            view === key
+                                                ? 'border-blue-500 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                        } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                                    >
+                                        {value}
+                                    </button>
+                                ))}
+                            </nav>
+                        </div>
+                    )}
                     <div className="mt-6">{renderTabContent()}</div>
                 </div>
             </main>
@@ -325,7 +333,6 @@ const HRDashboard = ({ onLogout, token }) => {
     );
 };
 
-// --- This component now receives its data via props ---
 const HRJobDashboard = ({ jobs, isLoading }) => {
     if (isLoading) return <div className="text-center p-4">Loading your job postings...</div>;
 
@@ -346,10 +353,6 @@ const HRJobDashboard = ({ jobs, isLoading }) => {
                         </div>
                         <div className="flex space-x-4 text-center">
                             <div>
-                                <p className="text-2xl font-bold text-blue-600">{job.applicationStats.total}</p>
-                                <p className="text-xs text-gray-500">Total Apps</p>
-                            </div>
-                            <div>
                                 <p className="text-2xl font-bold text-green-600">{job.applicationStats.accepted}</p>
                                 <p className="text-xs text-gray-500">Accepted</p>
                             </div>
@@ -365,7 +368,6 @@ const HRJobDashboard = ({ jobs, isLoading }) => {
     );
 };
 
-// --- This component now calls onJobCreated after a successful submission ---
 const CreateJob = ({ token, onJobCreated }) => {
     const [formData, setFormData] = useState({
         companyName: '', jobTitle: '', experience: '', jobDescription: ''
@@ -410,7 +412,7 @@ const CreateJob = ({ token, onJobCreated }) => {
             setMessage('Job created successfully!');
             setFormData({ companyName: '', jobTitle: '', experience: '', jobDescription: '' });
             setSkills([{ name: '', rating: 3 }]);
-            onJobCreated(); // Tell the parent component to refresh its job list
+            onJobCreated();
         } catch (err) {
             setMessage(err.response?.data?.msg || 'Failed to create job.');
         } finally {
@@ -459,6 +461,110 @@ const CreateJob = ({ token, onJobCreated }) => {
                 {message && <p className={message.includes('successfully') ? 'text-green-600' : 'text-red-600'}>{message}</p>}
                 <Button type="submit" disabled={isLoading}>{isLoading ? 'Creating Job...' : 'Create Job'}</Button>
             </form>
+        </div>
+    );
+};
+
+const UploadResumes = ({ token, jobs, isLoadingJobs }) => {
+    const [selectedJob, setSelectedJob] = useState('');
+    const [files, setFiles] = useState(null);
+    const [results, setResults] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleFileChange = (e) => {
+        setFiles(e.target.files);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!selectedJob || !files) {
+            setError('Please select a job and choose resume files to upload.');
+            return;
+        }
+        setError('');
+        setIsLoading(true);
+        setResults([]);
+
+        const formData = new FormData();
+        formData.append('jobId', selectedJob);
+        for (let i = 0; i < files.length; i++) {
+            formData.append('resumes', files[i]);
+        }
+
+        try {
+            const res = await axios.post(`${API_BASE_URL}/api/analyze/resumes`, formData, {
+                headers: {
+                    'x-auth-token': token,
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+            const sortedResults = res.data.sort((a, b) => b.atsScore - a.atsScore);
+            setResults(sortedResults);
+        } catch (err) {
+            setError(err.response?.data?.msg || 'Analysis failed. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-white p-8 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4">Upload Resumes for Analysis</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label htmlFor="job-select" className="block text-sm font-medium text-gray-700">Select Job</label>
+                    <select
+                        id="job-select"
+                        value={selectedJob}
+                        onChange={(e) => setSelectedJob(e.target.value)}
+                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                        disabled={isLoadingJobs}
+                    >
+                        <option value="">{isLoadingJobs ? 'Loading jobs...' : '--Please choose a job--'}</option>
+                        {jobs.map(job => (
+                            <option key={job._id} value={job._id}>{job.jobTitle} at {job.companyName}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="resume-upload" className="block text-sm font-medium text-gray-700">Upload Resumes (up to 10)</label>
+                    <input id="resume-upload" type="file" multiple onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                </div>
+                <ErrorMessage message={error} />
+                <Button type="submit" disabled={isLoading}>{isLoading ? 'Analyzing...' : 'Analyze Resumes'}</Button>
+            </form>
+
+            {results.length > 0 && (
+                <div className="mt-6">
+                    <h3 className="text-lg font-medium">Analysis Results</h3>
+                    <ul className="mt-4 space-y-3">
+                        {results.map((result, index) => (
+                            <li key={index} className="bg-gray-50 p-4 rounded-md border">
+                                <div className="flex justify-between items-center">
+                                    <p className="font-medium text-gray-800">{result.fileName}</p>
+                                    <p className={`font-bold text-lg ${result.atsScore > 75 ? 'text-green-600' : result.atsScore > 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                        ATS Score: {result.atsScore}
+                                    </p>
+                                </div>
+                                <p className="text-sm text-gray-600 mt-2">{result.summary}</p>
+                                {result.matchedSkills && result.matchedSkills.length > 0 && (
+                                    <div className="mt-2">
+                                        <p className="text-xs font-medium text-gray-700">Matched Skills:</p>
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {result.matchedSkills.map((skill, i) => (
+                                                <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
+                                                    {skill}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
         </div>
     );
 };
@@ -531,7 +637,7 @@ const Applications = ({ token }) => {
 };
 
 
-// --- Candidate Dashboard ---
+// --- Candidate Dashboard (Complete Implementation) ---
 const CandidateDashboard = ({ onLogout, token }) => {
     const [view, setView] = useState('jobList'); 
     const [selectedJob, setSelectedJob] = useState(null);
@@ -549,6 +655,8 @@ const CandidateDashboard = ({ onLogout, token }) => {
                 return <ApplicationForm job={selectedJob} setView={setView} token={token} />;
             case 'myApplications':
                 return <MyApplications token={token} />;
+            case 'profile':
+                return <ProfilePage token={token} userType="Candidate" />;
             case 'jobList':
             default:
                 return <JobList onApplyNow={handleApplyNow} />;
@@ -560,20 +668,23 @@ const CandidateDashboard = ({ onLogout, token }) => {
             <header className="bg-white shadow-sm">
                 <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-gray-900">Candidate Dashboard</h1>
-                    <div>
+                    <div className="flex items-center space-x-4">
+                        <button onClick={() => setView('profile')} className="text-sm font-medium text-gray-600 hover:text-blue-500">Profile</button>
                         <button onClick={onLogout} className="text-sm font-medium text-blue-600 hover:text-blue-500">Logout</button>
                     </div>
                 </div>
             </header>
             <main className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
                 <div className="px-4 py-6 sm:px-0">
-                    <div className="border-b border-gray-200 mb-4">
-                        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                            <button onClick={() => setView('jobList')} className={`${view === 'jobList' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'} py-4 px-1 border-b-2 font-medium text-sm`}>Available Jobs</button>
-                            <button onClick={() => setView('myApplications')} className={`${view === 'myApplications' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'} py-4 px-1 border-b-2 font-medium text-sm`}>My Applications</button>
-                        </nav>
-                    </div>
-                    {renderContent()}
+                    {view !== 'profile' && (
+                        <div className="border-b border-gray-200 mb-4">
+                            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                                <button onClick={() => setView('jobList')} className={`${view === 'jobList' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'} py-4 px-1 border-b-2 font-medium text-sm`}>Available Jobs</button>
+                                <button onClick={() => setView('myApplications')} className={`${view === 'myApplications' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'} py-4 px-1 border-b-2 font-medium text-sm`}>My Applications</button>
+                            </nav>
+                        </div>
+                    )}
+                    <div className="mt-6">{renderContent()}</div>
                 </div>
             </main>
         </div>
@@ -832,6 +943,99 @@ const MyApplications = ({ token }) => {
                     </div>
                 </div>
             ))}
+        </div>
+    );
+};
+
+const ProfilePage = ({ token, userType }) => {
+    const [profile, setProfile] = useState(null);
+    const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '' });
+    const [message, setMessage] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+
+    const fetchProfile = useCallback(async () => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/profile/me`, {
+                headers: { 'x-auth-token': token }
+            });
+            setProfile(res.data);
+        } catch (err) {
+            console.error("Failed to fetch profile");
+        } finally {
+            setIsLoading(false);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        fetchProfile();
+    }, [fetchProfile]);
+
+    const handleProfileChange = (e) => {
+        setProfile({ ...profile, [e.target.name]: e.target.value });
+    };
+
+    const handlePasswordChange = (e) => {
+        setPasswordData({ ...passwordData, [e.target.name]: e.target.value });
+    };
+
+    const handleUpdateProfile = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        try {
+            await axios.put(`${API_BASE_URL}/api/profile`, profile, {
+                headers: { 'x-auth-token': token }
+            });
+            setMessage('Profile updated successfully!');
+        } catch (err) {
+            setMessage(err.response?.data?.msg || 'Failed to update profile.');
+        }
+    };
+
+    const handleUpdatePassword = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        try {
+            await axios.put(`${API_BASE_URL}/api/profile/password`, passwordData, {
+                headers: { 'x-auth-token': token }
+            });
+            setMessage('Password updated successfully!');
+            setPasswordData({ currentPassword: '', newPassword: '' });
+        } catch (err) {
+            setMessage(err.response?.data?.msg || 'Failed to update password.');
+        }
+    };
+    
+    if (isLoading) return <div className="text-center p-4">Loading profile...</div>;
+
+    return (
+        <div className="space-y-8">
+            <div className="bg-white p-8 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4">Update Profile Details</h2>
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    {userType === 'HR' ? (
+                        <>
+                            <InputField id="companyName" name="companyName" type="text" placeholder="Company Name" value={profile?.companyName || ''} onChange={handleProfileChange} />
+                            <InputField id="jobId" name="jobId" type="text" placeholder="Job ID" value={profile?.jobId || ''} onChange={handleProfileChange} />
+                        </>
+                    ) : (
+                        <>
+                            <InputField id="fullName" name="fullName" type="text" placeholder="Full Name" value={profile?.fullName || ''} onChange={handleProfileChange} />
+                            <InputField id="email" name="email" type="email" placeholder="Email Address" value={profile?.email || ''} onChange={handleProfileChange} />
+                        </>
+                    )}
+                    <Button type="submit">Update Details</Button>
+                </form>
+            </div>
+
+            <div className="bg-white p-8 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4">Change Password</h2>
+                <form onSubmit={handleUpdatePassword} className="space-y-4">
+                    <InputField id="currentPassword" name="currentPassword" type="password" placeholder="Current Password" value={passwordData.currentPassword} onChange={handlePasswordChange} />
+                    <InputField id="newPassword" name="newPassword" type="password" placeholder="New Password" value={passwordData.newPassword} onChange={handlePasswordChange} />
+                    <Button type="submit">Change Password</Button>
+                </form>
+            </div>
+             {message && <p className={`mt-4 text-center ${message.includes('successfully') ? 'text-green-600' : 'text-red-600'}`}>{message}</p>}
         </div>
     );
 };

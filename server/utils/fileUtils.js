@@ -1,17 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
-// This function checks if the 'uploads' directory exists, and creates it if it doesn't.
-const ensureUploadsDirectoryExists = () => {
-    const uploadPath = path.join(__dirname, '..', 'uploads');
-    if (!fs.existsSync(uploadPath)) {
-        try {
-            fs.mkdirSync(uploadPath);
-            console.log("'uploads' directory created successfully.");
-        } catch (err) {
-            console.error("Error creating 'uploads' directory:", err);
-        }
+const createUploadsDir = () => {
+    // Define the path to the uploads directory relative to the current file
+    const uploadsDirPath = path.join(__dirname, '..', 'uploads');
+
+    // Check if the directory exists, and if not, create it
+    if (!fs.existsSync(uploadsDirPath)) {
+        fs.mkdirSync(uploadsDirPath);
+        console.log('Successfully created uploads directory.');
     }
 };
 
-module.exports = { ensureUploadsDirectoryExists };
+module.exports = { createUploadsDir };

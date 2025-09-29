@@ -1,8 +1,6 @@
 const Job = require('../models/job');
 const { calculateAtsFromResumeText } = require('../utils/atsService');
 
-// @desc    Analyze a batch of resumes for a specific job
-// @route   POST /api/analyze/resumes
 exports.analyzeBatchResumes = async (req, res) => {
     if (req.user.userType !== 'HR') {
         return res.status(403).json({ msg: 'Access denied.' });
@@ -25,11 +23,13 @@ exports.analyzeBatchResumes = async (req, res) => {
         
         for (const file of files) {
             console.log(`Analyzing file with text scanner: ${file.originalname}...`);
-            const score = await calculateAtsFromResumeText(file.path, job.skills);
+            const analysisResult = await calculateAtsFromResumeText(file.path, job.skills);
             results.push({
                 fileName: file.originalname,
-                atsScore: score,
-                summary: `The resume matched ${score}% of the required skills based on text analysis.`
+                atsScore: analysisResult.score,
+                // --- NEW: Pass the list of matched skills to the frontend ---
+                matchedSkills: analysisResult.matchedSkillNames,
+                summary: `The resume matched ${analysisResult.score}% of the required skills based on text analysis.`
             });
         }
 

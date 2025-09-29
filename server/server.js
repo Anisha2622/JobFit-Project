@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const path = require('path');
+const { createUploadsDir } = require('./utils/fileUtils');
 require('dotenv').config();
+
+// Create uploads directory if it doesn't exist
+createUploadsDir();
 
 // Connect to the database
 connectDB();
@@ -21,14 +25,14 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/applications', require('./routes/applications'));
-app.use('/api/analyze', require('./routes/analyze')); // <-- Add this new line
+app.use('/api/profile', require('./routes/profile'));
+app.use('/api/analyze', require('./routes/analyze'));
 
-// A simple test route to make sure the server is working
 app.get('/', (req, res) => {
     res.send('JobFit API is running successfully!');
 });
 
-// Start the server
 app.listen(PORT, () => {
     console.log(`Server is listening on http://localhost:${PORT}`);
 });
+
