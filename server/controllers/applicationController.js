@@ -1,10 +1,8 @@
 const Application = require('../models/Application');
 const Job = require('../models/job');
-// --- CORRECTED IMPORT ---
 const { calculateAtsFromSkillMatch } = require('../utils/atsService');
 
 // @desc    Apply to a job
-// @route   POST /api/applications
 exports.applyToJob = async (req, res) => {
     if (req.user.userType !== 'Candidate') {
         return res.status(403).json({ msg: 'Access denied. Only candidates can apply.' });
@@ -48,7 +46,6 @@ exports.applyToJob = async (req, res) => {
 };
 
 // @desc    Get all applications for an HR user
-// @route   GET /api/applications/hr
 exports.getApplicationsForHR = async (req, res) => {
     if (req.user.userType !== 'HR') {
         return res.status(403).json({ msg: 'Access denied.' });
@@ -67,7 +64,6 @@ exports.getApplicationsForHR = async (req, res) => {
 };
 
 // @desc    Update an application's status
-// @route   PATCH /api/applications/:id/status
 exports.updateApplicationStatus = async (req, res) => {
     if (req.user.userType !== 'HR') {
         return res.status(403).json({ msg: 'Access denied.' });
@@ -96,7 +92,6 @@ exports.updateApplicationStatus = async (req, res) => {
 };
 
 // @desc    Get all applications for the current candidate
-// @route   GET /api/applications/me
 exports.getMyApplications = async (req, res) => {
     if (req.user.userType !== 'Candidate') {
         return res.status(403).json({ msg: 'Access denied.' });
@@ -113,7 +108,6 @@ exports.getMyApplications = async (req, res) => {
 };
 
 // @desc    Get analytics for an HR user
-// @route   GET /api/applications/analytics
 exports.getAnalytics = async (req, res) => {
     if (req.user.userType !== 'HR') {
         return res.status(403).json({ msg: 'Access denied.' });
