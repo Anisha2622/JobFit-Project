@@ -1,0 +1,19 @@
+#! server-service.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Service
+metadata:
+    name: server-published
+    namespace: jobfit-app
+    labels:
+        com.docker.compose.project: jobfit-app
+        com.docker.compose.service: server
+spec:
+    selector:
+        com.docker.compose.project: jobfit-app
+        com.docker.compose.service: server
+    ports:
+        - name: server-5000
+          port: 5000
+          protocol: TCP
+          targetPort: server-5000

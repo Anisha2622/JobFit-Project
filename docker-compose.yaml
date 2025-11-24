@@ -1,0 +1,42 @@
+services:
+  mongo:
+    image: mongo:6.0
+    container_name: jobfit-mongo
+    restart: unless-stopped
+    volumes:
+      - jobfit-mongo-data:/data/db
+    networks:
+      - jobfit-network
+    ports:
+      - "27017:27017"
+
+  server:
+    image: anisha2604/jobfit-server:latest
+    container_name: jobfit-server
+    restart: unless-stopped
+    environment:
+      # CHANGED: Ensure this matches what is in your nodejs code (usually MONGO_URI)
+      - MONGO_URI=mongodb://jobfit-mongo:27017/jobfit
+      - PORT=5000
+
+  client:
+    build: ./client            # <--- ADDED: Tells Docker to build from client folder
+    image: jobfit-client:latest
+    container_name: jobfit-client
+    restart: unless-stopped
+    environment:
+      # Since React runs in the browser, localhost is correct here for accessing the API
+      - VITE_API_URL=http://localhost:5000 
+    depends_on:
+      - server
+    networks:
+      - jobfit-network
+    ports:
+      - "3000:80"
+
+volumes:
+  jobfit-mongo-data:
+
+networks:
+  jobfit-network:
+    driver: bridge  # <--- CHANGED: Removed 'external: true' so Docker creates it automatically

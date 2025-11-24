@@ -1,0 +1,8 @@
+#! 0-jobfit-app-namespace.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: jobfit-app
+    labels:
+        com.docker.compose.project: jobfit-app

@@ -1,0 +1,13 @@
+# check if there is at least one published port
+
+#! client-service.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Service
+metadata:
+    name: client-published
+    namespace: jobfit-app
+spec:
+    type: LoadBalancer
+
+# check if there is at least one published port

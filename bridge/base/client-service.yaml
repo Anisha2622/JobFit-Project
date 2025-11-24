@@ -1,0 +1,23 @@
+# check if there is at least one published port
+
+#! client-service.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Service
+metadata:
+    name: client-published
+    namespace: jobfit-app
+    labels:
+        com.docker.compose.project: jobfit-app
+        com.docker.compose.service: client
+spec:
+    selector:
+        com.docker.compose.project: jobfit-app
+        com.docker.compose.service: client
+    ports:
+        - name: client-3000
+          port: 3000
+          protocol: TCP
+          targetPort: client-80
+
+# check if there is at least one published port

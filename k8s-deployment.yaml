@@ -1,0 +1,173 @@
+# -------------------
+# 1. NAMESPACE
+# -------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "2401157"
+
+---
+# -------------------
+# 2. MONGODB STORAGE (PVC)
+# -------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+  namespace: "2401157"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# -------------------
+# 3. MONGODB DEPLOYMENT
+# -------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-deployment
+  namespace: "2401157"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:
+      - name: mongo
+        image: mongo:6.0
+        ports:
+        - containerPort: 27017
+        volumeMounts:
+        - name: mongo-storage
+          mountPath: /data/db
+      volumes:
+      - name: mongo-storage
+        persistentVolumeClaim:
+          claimName: mongo-pvc
+
+---
+# -------------------
+# 4. MONGODB SERVICE
+# -------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-service
+  namespace: "2401157"
+spec:
+  selector:
+    app: mongo
+  ports:
+    - protocol: TCP
+      port: 27017
+      targetPort: 27017
+  type: ClusterIP  # Internal only
+
+---
+# -------------------
+# 5. SERVER (BACKEND) DEPLOYMENT
+# -------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-deployment
+  namespace: "2401157"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      containers:
+      - name: server
+        # Using the image we pushed earlier
+        image: anisha2604/jobfit-server:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: MONGO_URL  # <--- Make sure this matches your Node.js code exactly!
+          value: "mongodb://mongo-service:27017/jobfit"
+
+---
+# -------------------
+# 6. SERVER SERVICE
+# -------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-service
+  namespace: "2401157"
+spec:
+  selector:
+    app: server
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP  # Keeps backend internal
+
+---
+# -------------------
+# 7. CLIENT (FRONTEND) DEPLOYMENT
+# -------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-deployment
+  namespace: "2401157"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+    spec:
+      containers:
+      - name: client
+        # Using the client image we pushed earlier
+        image: anisha2604/jobfit-client:latest
+        ports:
+        - containerPort: 80
+
+---
+# -------------------
+# 8. CLIENT SERVICE (External Access)
+# -------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-service
+  namespace: "2401157"
+spec:
+  selector:
+    app: client
+  ports:
+    - protocol: TCP
+      port: 80        # Port available inside the cluster
+      targetPort: 80  # Port the container is listening on (Nginx default)
+      nodePort: 30007 # The port you will use in your browser (http://localhost:30007)
+  type: NodePort
+```
+
+### How to use this file
+
+1.  **Save the file:** Download the file above or copy the code into a file named `k8s-deployment.yaml`.
+2.  **Apply to Kubernetes:** Run the following command in your terminal:
+    ```bash
+    kubectl apply -f k8s-deployment.yaml
