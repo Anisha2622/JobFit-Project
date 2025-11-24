@@ -1,5 +1,27 @@
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: docker
+    image: docker:24-dind
+    securityContext:
+      privileged: true
+    tty: true
+    env:
+      - name: DOCKER_TLS_CERTDIR
+        value: ""
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command:
+    - cat
+    tty: true
+'''
+        }
+    }
 
     environment {
         // Your Docker Hub details
@@ -17,37 +39,40 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                // This step happens automatically if you use "Pipeline from SCM"
                 checkout scm
             }
         }
 
         stage('Build Docker Images') {
             steps {
-                script {
-                    echo '🏗️ Building Client Image...'
-                    // Build Client from ./client folder
-                    sh "docker build -t ${IMAGE_CLIENT}:latest ./client"
+                // RUN IN DOCKER CONTAINER
+                container('docker') {
+                    script {
+                        echo '🏗️ Building Client Image...'
+                        sh "docker build -t ${IMAGE_CLIENT}:latest ./client"
 
-                    echo '🏗️ Building Server Image...'
-                    // Build Server from ./server folder
-                    sh "docker build -t ${IMAGE_SERVER}:latest ./server"
+                        echo '🏗️ Building Server Image...'
+                        sh "docker build -t ${IMAGE_SERVER}:latest ./server"
+                    }
                 }
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                script {
-                    echo '☁️ Logging into Docker Hub...'
-                    withCredentials([usernamePassword(credentialsId: DOCKER_CREDS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
-                        
-                        echo '🚀 Pushing Client Image...'
-                        sh "docker push ${IMAGE_CLIENT}:latest"
-                        
-                        echo '🚀 Pushing Server Image...'
-                        sh "docker push ${IMAGE_SERVER}:latest"
+                // RUN IN DOCKER CONTAINER
+                container('docker') {
+                    script {
+                        echo '☁️ Logging into Docker Hub...'
+                        withCredentials([usernamePassword(credentialsId: DOCKER_CREDS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                            sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                            
+                            echo '🚀 Pushing Client Image...'
+                            sh "docker push ${IMAGE_CLIENT}:latest"
+                            
+                            echo '🚀 Pushing Server Image...'
+                            sh "docker push ${IMAGE_SERVER}:latest"
+                        }
                     }
                 }
             }
@@ -55,18 +80,19 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    echo '☸️ Applying Kubernetes Manifests...'
-                    // Apply your deployment file
-                    sh "kubectl apply -f k8s-deployment.yaml"
-                    
-                    // Apply the service file we created separately
-                    sh "kubectl apply -f client-service.yaml"
-                    
-                    echo '🔄 Rolling out updates...'
-                    // Since we use 'latest' tag, we must force a restart to pull new code
-                    sh "kubectl rollout restart deployment/server-deployment -n ${K8S_NAMESPACE}"
-                    sh "kubectl rollout restart deployment/client-deployment -n ${K8S_NAMESPACE}"
+                // RUN IN KUBECTL CONTAINER
+                container('kubectl') {
+                    script {
+                        echo '☸️ Applying Kubernetes Manifests...'
+                        sh "kubectl apply -f k8s-deployment.yaml"
+                        
+                        // Ensure this file is in your git repo!
+                        sh "kubectl apply -f client-service.yaml"
+                        
+                        echo '🔄 Rolling out updates...'
+                        sh "kubectl rollout restart deployment/server-deployment -n ${K8S_NAMESPACE}"
+                        sh "kubectl rollout restart deployment/client-deployment -n ${K8S_NAMESPACE}"
+                    }
                 }
             }
         }
