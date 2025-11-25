@@ -1,16 +1,18 @@
 pipeline {
     agent {
         kubernetes {
-            label 'my-jenkins-jenkins-agent'   // change if your label is different
-            defaultContainer 'jnlp'
+            // This label must match your Kubernetes agent template label
+            label 'my-jenkins-jenkins-agent'
+            // 🟢 run all steps in the dind container (docker is installed here)
+            defaultContainer 'dind'
         }
     }
 
     environment {
-        DOCKERHUB_REPO_CLIENT = 'anisha2604/jobfit-client'
-        DOCKERHUB_REPO_SERVER = 'anisha2604/jobfit-server'
-        DOCKERHUB_CREDENTIALS_ID = 'docker-hub-credentials'  // Jenkins credentials ID (no token in file!)
-        K8S_MANIFESTS_DIR = 'k8s'
+        DOCKERHUB_REPO_CLIENT       = 'anisha2604/jobfit-client'
+        DOCKERHUB_REPO_SERVER       = 'anisha2604/jobfit-server'
+        DOCKERHUB_CREDENTIALS_ID    = 'docker-hub-credentials'  // Jenkins credentials ID
+        K8S_MANIFESTS_DIR           = 'k8s'
     }
 
     options {
@@ -27,39 +29,35 @@ pipeline {
 
         stage('Build Docker Images') {
             steps {
-                container('dind') {
-                    echo '🏗️ Building Client Image...'
-                    sh """
-                      docker build \
-                        -t ${DOCKERHUB_REPO_CLIENT}:latest \
-                        ./client
-                    """
+                echo '🏗️ Building Client Image...'
+                sh """
+                  docker build \
+                    -t ${DOCKERHUB_REPO_CLIENT}:latest \
+                    ./client
+                """
 
-                    echo '🏗️ Building Server Image...'
-                    sh """
-                      docker build \
-                        -t ${DOCKERHUB_REPO_SERVER}:latest \
-                        ./server
-                    """
-                }
+                echo '🏗️ Building Server Image...'
+                sh """
+                  docker build \
+                    -t ${DOCKERHUB_REPO_SERVER}:latest \
+                    ./server
+                """
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                container('dind') {
-                    withCredentials([usernamePassword(
-                        credentialsId: DOCKERHUB_CREDENTIALS_ID,
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        sh '''
-                          echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                withCredentials([usernamePassword(
+                    credentialsId: DOCKERHUB_CREDENTIALS_ID,
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                      echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-                          docker push '"${DOCKERHUB_REPO_CLIENT}"':latest
-                          docker push '"${DOCKERHUB_REPO_SERVER}"':latest
-                        '''
-                    }
+                      docker push '"${DOCKERHUB_REPO_CLIENT}"':latest
+                      docker push '"${DOCKERHUB_REPO_SERVER}"':latest
+                    '''
                 }
             }
         }
@@ -69,12 +67,10 @@ pipeline {
                 expression { fileExists(env.K8S_MANIFESTS_DIR) }
             }
             steps {
-                container('dind') {
-                    echo "🚀 Deploying manifests from ${K8S_MANIFESTS_DIR} ..."
-                    sh """
-                      kubectl apply -f ${K8S_MANIFESTS_DIR}
-                    """
-                }
+                echo "🚀 Deploying manifests from ${K8S_MANIFESTS_DIR} ..."
+                sh """
+                  kubectl apply -f ${K8S_MANIFESTS_DIR}
+                """
             }
         }
     }
