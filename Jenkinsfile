@@ -55,10 +55,6 @@ spec:
         NEXUS_REPO = '2401157' 
         NEXUS_USER = 'admin'
         NEXUS_PASS = 'Changeme@2025'
-
-        // Docker Hub ID (Must exist in Jenkins Credentials)
-        // We need this ONLY to pull base images (Node/Nginx) without rate limits
-        DOCKERHUB_CRED_ID = 'dockerhub-credentials' 
     }
 
     stages {
@@ -95,19 +91,11 @@ spec:
             steps {
                 container('dind') {
                     script {
-                        // --- FIX FOR 429 RATE LIMIT ---
-                        // We log in to Docker Hub first to get a higher pull limit for base images
-                        try {
-                            withCredentials([usernamePassword(credentialsId: DOCKERHUB_CRED_ID, usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
-                                sh 'echo $DH_PASS | docker login -u $DH_USER --password-stdin'
-                                echo "✅ Logged into Docker Hub (Rate Limit Increased)"
-                            }
-                        } catch (Exception e) {
-                            echo "⚠️ Could not login to Docker Hub. If build fails with 429, check 'dockerhub-credentials' in Jenkins."
-                        }
-
-                        // Now run the build
+                        // Removed Docker Hub login as requested.
+                        // Note: Base images (node, nginx) will be pulled anonymously from Docker Hub.
+                        
                         sh '''
+                            # Wait for sidecar to be ready
                             sleep 5
                             
                             echo "🐳 Building Client Image..."
@@ -138,7 +126,7 @@ spec:
         stage('Login to Nexus Registry') {
             steps {
                 container('dind') {
-                    // Now we login to Nexus to PUSH our images
+                    // Login only to Nexus
                     sh """
                         docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
                     """
