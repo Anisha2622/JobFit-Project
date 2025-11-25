@@ -42,8 +42,8 @@ spec:
             steps {
                 container('docker') {
                     script {
-                        // FIX: Wait for Docker Daemon to be ready
-                        sh 'while ! docker info > /dev/null 2>&1; do echo "Waiting for Docker daemon..."; sleep 3; done'
+                        // Wait for Docker Daemon to start (prevents "Cannot connect" error)
+                        sh 'while ! docker info > /dev/null 2>&1; do echo "Waiting for Docker..."; sleep 3; done'
                         
                         echo '🏗️ Building Client Image...'
                         sh "docker build -t ${IMAGE_CLIENT}:latest ./client"
@@ -59,9 +59,6 @@ spec:
             steps {
                 container('docker') {
                     script {
-                        // Wait again just in case
-                        sh 'while ! docker info > /dev/null 2>&1; do sleep 1; done'
-                        
                         echo '☁️ Logging into Docker Hub...'
                         withCredentials([usernamePassword(credentialsId: DOCKER_CREDS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                             sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
@@ -83,6 +80,8 @@ spec:
                     script {
                         echo '☸️ Applying Kubernetes Manifests...'
                         sh "kubectl apply -f k8s-deployment.yaml"
+                        
+                        // Ensure client-service.yaml is also in your Git repo!
                         sh "kubectl apply -f client-service.yaml"
                         
                         echo '🔄 Rolling out updates...'
