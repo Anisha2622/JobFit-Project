@@ -1,89 +1,170 @@
 pipeline {
     agent {
         kubernetes {
-            label 'my-jenkins-jenkins-agent'
-            // run everything in dind where docker is installed
-            defaultContainer 'dind'
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: node
+    image: node:18
+    command: ['cat']
+    tty: true
+
+  - name: sonar-scanner
+    image: sonarsource/sonar-scanner-cli
+    command: ['cat']
+    tty: true
+
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command: ['cat']
+    tty: true
+    securityContext:
+      runAsUser: 0
+    env:
+    - name: KUBECONFIG
+      value: /kube/config
+    volumeMounts:
+    - name: kubeconfig-secret
+      mountPath: /kube/config
+      subPath: kubeconfig
+
+  - name: dind
+    image: docker:dind
+    args: ["--storage-driver=overlay2", "--insecure-registry=nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"]
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+  volumes:
+  - name: kubeconfig-secret
+    secret:
+      secretName: kubeconfig-secret
+'''
         }
     }
 
     environment {
-        DOCKERHUB_REPO_CLIENT       = 'anisha2604/jobfit-client'
-        DOCKERHUB_REPO_SERVER       = 'anisha2604/jobfit-server'
-        DOCKERHUB_CREDENTIALS_ID    = 'docker-hub-credentials'
-        K8S_MANIFESTS_DIR           = 'k8s'
-    }
-
-    options {
-        // just this is fine
-        skipDefaultCheckout()
-        // ❌ timestamps() removed
+        // Your specific Namespace and Nexus details
+        NAMESPACE = '2401157'
+        NEXUS_REGISTRY = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
+        NEXUS_REPO = '2401157' 
+        // Credentials for Nexus (Matches the example you gave)
+        NEXUS_USER = 'admin'
+        NEXUS_PASS = 'Changeme@2025'
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Install + Build Frontend') {
             steps {
-                checkout scm
+                container('node') {
+                    // Go into client folder and install
+                    dir('client') {
+                        sh '''
+                            echo "📦 Installing Client Dependencies..."
+                            npm install
+                            echo "🏗️ Building React App..."
+                            npm run build
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Install Backend') {
+            steps {
+                container('node') {
+                    // Go into server folder and install (good for Sonar checks)
+                    dir('server') {
+                        sh '''
+                            echo "📦 Installing Server Dependencies..."
+                            npm install
+                        '''
+                    }
+                }
             }
         }
 
         stage('Build Docker Images') {
             steps {
-                echo '🏗️ Building Client Image...'
-                sh """
-                  docker build \
-                    -t ${DOCKERHUB_REPO_CLIENT}:latest \
-                    ./client
-                """
-
-                echo '🏗️ Building Server Image...'
-                sh """
-                  docker build \
-                    -t ${DOCKERHUB_REPO_SERVER}:latest \
-                    ./server
-                """
-            }
-        }
-
-        stage('Push to Docker Hub') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: DOCKERHUB_CREDENTIALS_ID,
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
+                container('dind') {
                     sh '''
-                      echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        sleep 10
+                        
+                        echo "🐳 Building Client Image..."
+                        docker build -t jobfit-client:latest ./client
 
-                      docker push '"${DOCKERHUB_REPO_CLIENT}"':latest
-                      docker push '"${DOCKERHUB_REPO_SERVER}"':latest
+                        echo "🐳 Building Server Image..."
+                        docker build -t jobfit-server:latest ./server
                     '''
                 }
             }
         }
 
-        stage('Deploy to Kubernetes') {
-            when {
-                expression { fileExists(env.K8S_MANIFESTS_DIR) }
-            }
+        stage('SonarQube Analysis') {
             steps {
-                echo "🚀 Deploying manifests from ${K8S_MANIFESTS_DIR} ..."
-                sh """
-                  kubectl apply -f ${K8S_MANIFESTS_DIR}
-                """
+                container('sonar-scanner') {
+                    // Scans the root folder (Client + Server)
+                    sh """
+                        sonar-scanner \
+                            -Dsonar.projectKey=${NAMESPACE}-jobfit \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
+                            -Dsonar.login=sqp_fec0d2cd0d6849ed77e9d26ed8ae79e2a03b2844
+                    """
+                }
             }
         }
-    }
 
-    post {
-        success {
-            echo '✅ Pipeline succeeded!'
+        stage('Login to Nexus Registry') {
+            steps {
+                container('dind') {
+                    sh """
+                        docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+                    """
+                }
+            }
         }
-        failure {
-            echo '❌ Pipeline failed. Please check the logs.'
+
+        stage('Push to Nexus') {
+            steps {
+                container('dind') {
+                    sh """
+                        # --- CLIENT ---
+                        docker tag jobfit-client:latest ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-client:v1
+                        docker push ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-client:v1
+
+                        # --- SERVER ---
+                        docker tag jobfit-server:latest ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-server:v1
+                        docker push ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-server:v1
+                    """
+                }
+            }
         }
-        always {
-            echo "🏁 Pipeline finished (build #${env.BUILD_NUMBER})"
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                container('kubectl') {
+                    // Ensure you have updated k8s-deployment.yaml to match the Nexus Image URLs!
+                    sh """
+                        echo "☸️ Deploying to Namespace: ${NAMESPACE}"
+                        
+                        kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
+                        kubectl apply -f client-service.yaml -n ${NAMESPACE}
+                        
+                        kubectl get all -n ${NAMESPACE}
+                        
+                        # Restart to pull new images
+                        kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
+                        kubectl rollout restart deployment/client-deployment -n ${NAMESPACE}
+                        
+                        kubectl rollout status deployment/server-deployment -n ${NAMESPACE}
+                    """
+                }
+            }
         }
     }
 }
