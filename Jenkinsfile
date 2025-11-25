@@ -129,12 +129,21 @@ spec:
             steps {
                 container('dind') {
                     script {
-                        // --- FIX FOR 429 RATE LIMIT ---
-                        // Switch base images to AWS Mirror to avoid Docker Hub limits
-                        echo "🔧 Switching to AWS Mirror to bypass Docker Hub limits..."
+                        // --- FIX FOR BASE IMAGE PULLS ---
+                        // We force the Dockerfiles to pull 'node' and 'nginx' from AWS Public Registry (no rate limit, public access)
+                        // instead of Nexus (empty) or Docker Hub (rate limited).
+                        
+                        echo "🔧 Switching base images to AWS Public Registry..."
+                        // Replaces 'FROM node...' with 'FROM public.ecr.aws/docker/library/node...'
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
+                        
+                        // Replaces 'FROM nginx...' with 'FROM public.ecr.aws/docker/library/nginx...'
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
+                        
+                        // Also fix any accidental 'FROM nexus...' that might be in your file from previous debugging
+                        sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
+                        sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
                         sh '''
                         # Wait for Docker Daemon
@@ -193,14 +202,12 @@ spec:
                 container('kubectl') {
                     sh """
                     echo "📦 Applying Kubernetes manifests..."
-                    // Will apply k8s-deployment.yaml and client-service.yaml from root
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
 
                     echo "🔁 Updating images in deployments..."
-                    // Ensure deployment names match k8s-deployment.yaml (client-deployment / server-deployment)
-                    kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE} --record
-                    kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE} --record
+                    kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
+                    kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
                     
                     echo "✅ checking rollout status..."
                     kubectl rollout status deployment/server-deployment -n ${NAMESPACE}
