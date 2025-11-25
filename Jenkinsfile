@@ -141,9 +141,12 @@ spec:
                         // Replaces 'FROM nginx...' with 'FROM public.ecr.aws/docker/library/nginx...'
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
                         
-                        // Also fix any accidental 'FROM nexus...' that might be in your file from previous debugging
+                        // Fix for accidental 'FROM nexus...' in CLIENT Dockerfile
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
+
+                        // **NEW FIX:** Fix for 'FROM nexus...' in SERVER Dockerfile (This was missing!)
+                        sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
 
                         sh '''
                         # Wait for Docker Daemon
