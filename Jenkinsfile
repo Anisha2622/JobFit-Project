@@ -47,13 +47,18 @@ spec:
     }
 
     environment {
-        // Your specific Namespace and Nexus details
+        // Project Details
         NAMESPACE = '2401157'
+        
+        // Nexus Details
         NEXUS_REGISTRY = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
         NEXUS_REPO = '2401157' 
-        // Credentials for Nexus (Matches the example you gave)
         NEXUS_USER = 'admin'
         NEXUS_PASS = 'Changeme@2025'
+
+        // Docker Hub ID (Must exist in Jenkins Credentials)
+        // We need this ONLY to pull base images (Node/Nginx) without rate limits
+        DOCKERHUB_CRED_ID = 'dockerhub-credentials' 
     }
 
     stages {
@@ -61,7 +66,6 @@ spec:
         stage('Install + Build Frontend') {
             steps {
                 container('node') {
-                    // Go into client folder and install
                     dir('client') {
                         sh '''
                             echo "📦 Installing Client Dependencies..."
@@ -77,7 +81,6 @@ spec:
         stage('Install Backend') {
             steps {
                 container('node') {
-                    // Go into server folder and install (good for Sonar checks)
                     dir('server') {
                         sh '''
                             echo "📦 Installing Server Dependencies..."
@@ -91,15 +94,29 @@ spec:
         stage('Build Docker Images') {
             steps {
                 container('dind') {
-                    sh '''
-                        sleep 10
-                        
-                        echo "🐳 Building Client Image..."
-                        docker build -t jobfit-client:latest ./client
+                    script {
+                        // --- FIX FOR 429 RATE LIMIT ---
+                        // We log in to Docker Hub first to get a higher pull limit for base images
+                        try {
+                            withCredentials([usernamePassword(credentialsId: DOCKERHUB_CRED_ID, usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                                sh 'echo $DH_PASS | docker login -u $DH_USER --password-stdin'
+                                echo "✅ Logged into Docker Hub (Rate Limit Increased)"
+                            }
+                        } catch (Exception e) {
+                            echo "⚠️ Could not login to Docker Hub. If build fails with 429, check 'dockerhub-credentials' in Jenkins."
+                        }
 
-                        echo "🐳 Building Server Image..."
-                        docker build -t jobfit-server:latest ./server
-                    '''
+                        // Now run the build
+                        sh '''
+                            sleep 5
+                            
+                            echo "🐳 Building Client Image..."
+                            docker build -t jobfit-client:latest ./client
+
+                            echo "🐳 Building Server Image..."
+                            docker build -t jobfit-server:latest ./server
+                        '''
+                    }
                 }
             }
         }
@@ -107,7 +124,6 @@ spec:
         stage('SonarQube Analysis') {
             steps {
                 container('sonar-scanner') {
-                    // Scans the root folder (Client + Server)
                     sh """
                         sonar-scanner \
                             -Dsonar.projectKey=${NAMESPACE}-jobfit \
@@ -122,6 +138,7 @@ spec:
         stage('Login to Nexus Registry') {
             steps {
                 container('dind') {
+                    // Now we login to Nexus to PUSH our images
                     sh """
                         docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
                     """
@@ -148,14 +165,11 @@ spec:
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
-                    // Ensure you have updated k8s-deployment.yaml to match the Nexus Image URLs!
                     sh """
                         echo "☸️ Deploying to Namespace: ${NAMESPACE}"
                         
                         kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                         kubectl apply -f client-service.yaml -n ${NAMESPACE}
-                        
-                        kubectl get all -n ${NAMESPACE}
                         
                         # Restart to pull new images
                         kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
