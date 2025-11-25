@@ -91,7 +91,8 @@ spec:
 
         // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
-        SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
+        // FIXED: Use the external URL since internal service connection was refused
+        SONAR_HOST_URL      = 'http://sonarqube.imcc.com' 
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
     }
 
@@ -145,7 +146,7 @@ spec:
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
-                        // **NEW FIX:** Fix for 'FROM nexus...' in SERVER Dockerfile (This was missing!)
+                        // **FIX:** Fix for 'FROM nexus...' in SERVER Dockerfile
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
 
                         sh '''
@@ -170,7 +171,7 @@ spec:
                     sonar-scanner \
                       -Dsonar.projectKey=2401157-jobfit\
                       -Dsonar.sources=. \
-                      -Dsonar.host.url=${SONAR_HOST_URL} \
+                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
                       -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
                     """
                 }
