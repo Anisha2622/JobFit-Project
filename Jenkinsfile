@@ -1,9 +1,8 @@
 pipeline {
     agent {
         kubernetes {
-            // This label must match your Kubernetes agent template label
             label 'my-jenkins-jenkins-agent'
-            // 🟢 run all steps in the dind container (docker is installed here)
+            // run everything in dind where docker is installed
             defaultContainer 'dind'
         }
     }
@@ -11,13 +10,14 @@ pipeline {
     environment {
         DOCKERHUB_REPO_CLIENT       = 'anisha2604/jobfit-client'
         DOCKERHUB_REPO_SERVER       = 'anisha2604/jobfit-server'
-        DOCKERHUB_CREDENTIALS_ID    = 'docker-hub-credentials'  // Jenkins credentials ID
+        DOCKERHUB_CREDENTIALS_ID    = 'docker-hub-credentials'
         K8S_MANIFESTS_DIR           = 'k8s'
     }
 
     options {
-        skipDefaultCheckout(true)
-        timestamps()
+        // just this is fine
+        skipDefaultCheckout()
+        // ❌ timestamps() removed
     }
 
     stages {
