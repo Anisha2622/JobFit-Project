@@ -92,7 +92,7 @@ spec:
         // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
         SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-        SONAR_PROJECT_TOKEN = 'sqp_c2d416f41af745b83b0bcd5e97181ab0e8c3caa8'
+        SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
     }
 
     stages {
