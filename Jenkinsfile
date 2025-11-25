@@ -4,57 +4,95 @@ pipeline {
             yaml '''
 apiVersion: v1
 kind: Pod
+metadata:
+  labels:
+    jenkins/label: "2401157-jobfit-anisha-1-mggxr"
 spec:
-  containers:
-  - name: node
-    image: node:18
-    command: ['cat']
-    tty: true
-
-  - name: sonar-scanner
-    image: sonarsource/sonar-scanner-cli
-    command: ['cat']
-    tty: true
-
-  - name: kubectl
-    image: bitnami/kubectl:latest
-    command: ['cat']
-    tty: true
-    securityContext:
-      runAsUser: 0
-    env:
-    - name: KUBECONFIG
-      value: /kube/config
-    volumeMounts:
-    - name: kubeconfig-secret
-      mountPath: /kube/config
-      subPath: kubeconfig
-
-  - name: dind
-    image: docker:dind
-    args: ["--storage-driver=overlay2", "--insecure-registry=nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"]
-    securityContext:
-      privileged: true
-    env:
-    - name: DOCKER_TLS_CERTDIR
-      value: ""
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/os: "linux"
   volumes:
-  - name: kubeconfig-secret
-    secret:
-      secretName: kubeconfig-secret
+    - name: workspace-volume
+      emptyDir: {}
+    - name: kubeconfig-secret
+      secret:
+        secretName: kubeconfig-secret
+  containers:
+    - name: node
+      image: node:18
+      tty: true
+      command: ["cat"]
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+    - name: sonar-scanner
+      image: sonarsource/sonar-scanner-cli
+      tty: true
+      command: ["cat"]
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+    - name: kubectl
+      image: bitnami/kubectl:latest
+      tty: true
+      command: ["cat"]
+      env:
+        - name: KUBECONFIG
+          value: /kube/config
+      securityContext:
+        runAsUser: 0
+      volumeMounts:
+        - name: kubeconfig-secret
+          mountPath: /kube/config
+          subPath: kubeconfig
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+    - name: dind
+      image: docker:dind
+      args: ["--storage-driver=overlay2", "--insecure-registry=nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"]
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
+    - name: jnlp
+      image: jenkins/inbound-agent:3345.v03dee9b_f88fc-1
+      env:
+        - name: JENKINS_AGENT_NAME
+          value: "2401157-jobfit-anisha-1-mggxr-tcg6j-kntxd"
+        - name: JENKINS_AGENT_WORKDIR
+          value: "/home/jenkins/agent"
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent
 '''
         }
     }
 
     environment {
-        // Project Details
+        // --- CONFIGURATION ---
         NAMESPACE = '2401157'
         
-        // Nexus Details
-        NEXUS_REGISTRY = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
-        NEXUS_REPO = '2401157' 
+        // Nexus Registry Details
+        REGISTRY     = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
+        APP_NAME     = 'jobfit'
+        IMAGE_TAG    = 'latest'
+        // Image paths matching Nexus structure
+        CLIENT_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-client"
+        SERVER_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-server"
+
+        // Nexus Credentials (Hardcoded)
         NEXUS_USER = 'admin'
         NEXUS_PASS = 'Changeme@2025'
+
+        // SonarQube Configuration
+        SONAR_PROJECT_KEY   = '2401157-jobfit'
+        SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
+        SONAR_PROJECT_TOKEN = 'sqp_c2d416f41af745b83b0bcd5e97181ab0e8c3caa8'
     }
 
     stages {
@@ -64,10 +102,10 @@ spec:
                 container('node') {
                     dir('client') {
                         sh '''
-                            echo "📦 Installing Client Dependencies..."
-                            npm install
-                            echo "🏗️ Building React App..."
-                            npm run build
+                        echo "📦 Installing Client Dependencies..."
+                        npm install
+                        echo "🏗️ Building React App..."
+                        npm run build
                         '''
                     }
                 }
@@ -79,8 +117,8 @@ spec:
                 container('node') {
                     dir('server') {
                         sh '''
-                            echo "📦 Installing Server Dependencies..."
-                            npm install
+                        echo "📦 Installing Server Dependencies..."
+                        npm install
                         '''
                     }
                 }
@@ -91,18 +129,22 @@ spec:
             steps {
                 container('dind') {
                     script {
-                        // Removed Docker Hub login as requested.
-                        // Note: Base images (node, nginx) will be pulled anonymously from Docker Hub.
-                        
-                        sh '''
-                            # Wait for sidecar to be ready
-                            sleep 5
-                            
-                            echo "🐳 Building Client Image..."
-                            docker build -t jobfit-client:latest ./client
+                        // --- FIX FOR 429 RATE LIMIT ---
+                        // Switch base images to AWS Mirror to avoid Docker Hub limits
+                        echo "🔧 Switching to AWS Mirror to bypass Docker Hub limits..."
+                        sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
+                        sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
+                        sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
-                            echo "🐳 Building Server Image..."
-                            docker build -t jobfit-server:latest ./server
+                        sh '''
+                        # Wait for Docker Daemon
+                        while ! docker info > /dev/null 2>&1; do echo "Waiting for Docker..."; sleep 3; done
+                        
+                        echo "🐳 Building Client Image..."
+                        docker build -t ${CLIENT_IMAGE}:${IMAGE_TAG} ./client
+
+                        echo "🐳 Building Server Image..."
+                        docker build -t ${SERVER_IMAGE}:${IMAGE_TAG} ./server
                         '''
                     }
                 }
@@ -113,11 +155,11 @@ spec:
             steps {
                 container('sonar-scanner') {
                     sh """
-                        sonar-scanner \
-                            -Dsonar.projectKey=${NAMESPACE}-jobfit \
-                            -Dsonar.sources=. \
-                            -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
-                            -Dsonar.login=sqp_fec0d2cd0d6849ed77e9d26ed8ae79e2a03b2844
+                    sonar-scanner \
+                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                      -Dsonar.sources=. \
+                      -Dsonar.host.url=${SONAR_HOST_URL} \
+                      -Dsonar.login=${SONAR_PROJECT_TOKEN}
                     """
                 }
             }
@@ -126,9 +168,9 @@ spec:
         stage('Login to Nexus Registry') {
             steps {
                 container('dind') {
-                    // Login only to Nexus
                     sh """
-                        docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+                    echo "🔐 Logging into Nexus Docker Registry..."
+                    echo "$NEXUS_PASS" | docker login ${REGISTRY} -u "$NEXUS_USER" --password-stdin
                     """
                 }
             }
@@ -137,15 +179,11 @@ spec:
         stage('Push to Nexus') {
             steps {
                 container('dind') {
-                    sh """
-                        # --- CLIENT ---
-                        docker tag jobfit-client:latest ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-client:v1
-                        docker push ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-client:v1
-
-                        # --- SERVER ---
-                        docker tag jobfit-server:latest ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-server:v1
-                        docker push ${NEXUS_REGISTRY}/${NEXUS_REPO}/jobfit-server:v1
-                    """
+                    sh '''
+                    echo "🚀 Pushing images to Nexus..."
+                    docker push ${CLIENT_IMAGE}:${IMAGE_TAG}
+                    docker push ${SERVER_IMAGE}:${IMAGE_TAG}
+                    '''
                 }
             }
         }
@@ -154,19 +192,30 @@ spec:
             steps {
                 container('kubectl') {
                     sh """
-                        echo "☸️ Deploying to Namespace: ${NAMESPACE}"
-                        
-                        kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
-                        kubectl apply -f client-service.yaml -n ${NAMESPACE}
-                        
-                        # Restart to pull new images
-                        kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
-                        kubectl rollout restart deployment/client-deployment -n ${NAMESPACE}
-                        
-                        kubectl rollout status deployment/server-deployment -n ${NAMESPACE}
+                    echo "📦 Applying Kubernetes manifests..."
+                    // Will apply k8s-deployment.yaml and client-service.yaml from root
+                    kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
+                    kubectl apply -f client-service.yaml -n ${NAMESPACE}
+
+                    echo "🔁 Updating images in deployments..."
+                    // Ensure deployment names match k8s-deployment.yaml (client-deployment / server-deployment)
+                    kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE} --record
+                    kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE} --record
+                    
+                    echo "✅ checking rollout status..."
+                    kubectl rollout status deployment/server-deployment -n ${NAMESPACE}
                     """
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Pipeline failed. Check logs for details."
         }
     }
 }
