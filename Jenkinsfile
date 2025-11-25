@@ -168,10 +168,10 @@ spec:
                 container('sonar-scanner') {
                     sh """
                     sonar-scanner \
-                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                      -Dsonar.projectKey=2401157-jobfit\
                       -Dsonar.sources=. \
                       -Dsonar.host.url=${SONAR_HOST_URL} \
-                      -Dsonar.login=${SONAR_PROJECT_TOKEN}
+                      -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
                     """
                 }
             }
