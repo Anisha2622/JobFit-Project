@@ -91,8 +91,7 @@ spec:
 
         // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
-        // FIXED: Use the external URL since internal service connection was refused
-        SONAR_HOST_URL      = 'http://sonarqube.imcc.com' 
+        SONAR_HOST_URL      = 'http://sonarqube.imcc.com'
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
     }
 
@@ -130,24 +129,16 @@ spec:
             steps {
                 container('dind') {
                     script {
-                        // --- FIX FOR BASE IMAGE PULLS ---
-                        // We force the Dockerfiles to pull 'node' and 'nginx' from AWS Public Registry (no rate limit, public access)
-                        // instead of Nexus (empty) or Docker Hub (rate limited).
-                        
-                        echo "🔧 Switching base images to AWS Public Registry..."
-                        // Replaces 'FROM node...' with 'FROM public.ecr.aws/docker/library/node...'
+                        // --- FIX FOR 429 RATE LIMIT ---
+                        echo "🔧 Switching to AWS Mirror to bypass Docker Hub limits..."
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
-                        
-                        // Replaces 'FROM nginx...' with 'FROM public.ecr.aws/docker/library/nginx...'
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
                         
-                        // Fix for accidental 'FROM nexus...' in CLIENT Dockerfile
+                        // Backup fix for nexus prefix in Dockerfiles
+                        sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
-
-                        // **FIX:** Fix for 'FROM nexus...' in SERVER Dockerfile
-                        sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
 
                         sh '''
                         # Wait for Docker Daemon
@@ -169,10 +160,10 @@ spec:
                 container('sonar-scanner') {
                     sh """
                     sonar-scanner \
-                      -Dsonar.projectKey=2401157-jobfit\
+                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                       -Dsonar.sources=. \
-                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
-                      -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
+                      -Dsonar.host.url=${SONAR_HOST_URL} \
+                      -Dsonar.login=${SONAR_PROJECT_TOKEN}
                     """
                 }
             }
@@ -213,7 +204,11 @@ spec:
                     kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
                     kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
                     
-                    echo "✅ checking rollout status..."
+                    echo "🔄 Forcing Rollout Restart..."
+                    kubectl rollout restart deployment/client-deployment -n ${NAMESPACE}
+                    kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
+                    
+                    echo "✅ Checking rollout status..."
                     kubectl rollout status deployment/server-deployment -n ${NAMESPACE}
                     """
                 }
