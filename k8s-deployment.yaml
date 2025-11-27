@@ -8,73 +8,7 @@ metadata:
 
 ---
 # -------------------
-# 2. MONGODB STORAGE (PVC)
-# -------------------
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mongo-pvc
-  namespace: "2401157"
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-
----
-# -------------------
-# 3. MONGODB DEPLOYMENT
-# -------------------
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mongo-deployment
-  namespace: "2401157"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mongo
-  template:
-    metadata:
-      labels:
-        app: mongo
-    spec:
-      containers:
-      - name: mongo
-        image: mongo:6.0
-        ports:
-        - containerPort: 27017
-        volumeMounts:
-        - name: mongo-storage
-          mountPath: /data/db
-      volumes:
-      - name: mongo-storage
-        persistentVolumeClaim:
-          claimName: mongo-pvc
-
----
-# -------------------
-# 4. MONGODB SERVICE
-# -------------------
-apiVersion: v1
-kind: Service
-metadata:
-  name: mongo-service
-  namespace: "2401157"
-spec:
-  selector:
-    app: mongo
-  ports:
-    - protocol: TCP
-      port: 27017
-      targetPort: 27017
-  type: ClusterIP
-
----
-# -------------------
-# 5. SERVER (BACKEND) DEPLOYMENT
+# 2. SERVER (BACKEND) DEPLOYMENT
 # -------------------
 apiVersion: apps/v1
 kind: Deployment
@@ -96,19 +30,20 @@ spec:
         - name: nexus-secret
       containers:
       - name: server
-        # Matches the Nexus URL and 'v1' tag from Jenkinsfile
+        # Matches the Nexus URL from Jenkinsfile
         image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-server:v1
         ports:
         - containerPort: 5000
         env:
+        # UPDATED WITH YOUR SPECIFIC CREDENTIALS
         - name: MONGO_URL
-          value: "mongodb://mongo-service:27017/jobfit"
+          value: "mongodb://2401157:anisha@mongodb.imcc.com/jobfit"
         - name: PORT
           value: "5000"
 
 ---
 # -------------------
-# 6. SERVER SERVICE
+# 3. SERVER SERVICE
 # -------------------
 apiVersion: v1
 kind: Service
@@ -126,7 +61,7 @@ spec:
 
 ---
 # -------------------
-# 7. CLIENT (FRONTEND) DEPLOYMENT
+# 4. CLIENT (FRONTEND) DEPLOYMENT
 # -------------------
 apiVersion: apps/v1
 kind: Deployment
@@ -148,7 +83,7 @@ spec:
         - name: nexus-secret
       containers:
       - name: client
-        # Matches the Nexus URL and 'v1' tag from Jenkinsfile
+        # Matches the Nexus URL from Jenkinsfile
         image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-client:v1
         ports:
         - containerPort: 80
