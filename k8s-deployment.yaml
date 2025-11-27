@@ -70,7 +70,7 @@ spec:
     - protocol: TCP
       port: 27017
       targetPort: 27017
-  type: ClusterIP  # Internal only
+  type: ClusterIP
 
 ---
 # -------------------
@@ -91,15 +91,20 @@ spec:
       labels:
         app: server
     spec:
+      # --- AUTH FOR NEXUS ---
+      imagePullSecrets:
+        - name: nexus-secret
       containers:
       - name: server
-        # Using the image we pushed earlier
-        image: anisha2604/jobfit-server:latest
+        # Matches the Nexus URL and 'v1' tag from Jenkinsfile
+        image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-server:v1
         ports:
         - containerPort: 5000
         env:
-        - name: MONGO_URL  # <--- Make sure this matches your Node.js code exactly!
+        - name: MONGO_URL
           value: "mongodb://mongo-service:27017/jobfit"
+        - name: PORT
+          value: "5000"
 
 ---
 # -------------------
@@ -117,7 +122,7 @@ spec:
     - protocol: TCP
       port: 5000
       targetPort: 5000
-  type: ClusterIP  # Keeps backend internal
+  type: ClusterIP
 
 ---
 # -------------------
@@ -138,36 +143,12 @@ spec:
       labels:
         app: client
     spec:
+      # --- AUTH FOR NEXUS ---
+      imagePullSecrets:
+        - name: nexus-secret
       containers:
       - name: client
-        # Using the client image we pushed earlier
-        image: anisha2604/jobfit-client:latest
+        # Matches the Nexus URL and 'v1' tag from Jenkinsfile
+        image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-client:v1
         ports:
         - containerPort: 80
-
----
-# -------------------
-# 8. CLIENT SERVICE (External Access)
-# -------------------
-apiVersion: v1
-kind: Service
-metadata:
-  name: client-service
-  namespace: "2401157"
-spec:
-  selector:
-    app: client
-  ports:
-    - protocol: TCP
-      port: 80        # Port available inside the cluster
-      targetPort: 80  # Port the container is listening on (Nginx default)
-      nodePort: 30007 # The port you will use in your browser (http://localhost:30007)
-  type: NodePort
-```
-
-### How to use this file
-
-1.  **Save the file:** Download the file above or copy the code into a file named `k8s-deployment.yaml`.
-2.  **Apply to Kubernetes:** Run the following command in your terminal:
-    ```bash
-    kubectl apply -f k8s-deployment.yaml
