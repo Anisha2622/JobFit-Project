@@ -74,15 +74,15 @@ spec:
     }
 
     environment {
-        // --- CONFIGURATION ---
+        // --- YOUR PROJECT CONFIGURATION ---
         NAMESPACE = '2401157'
+        APP_NAME  = 'jobfit'
         
         // Nexus Registry Details
         REGISTRY     = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
-        APP_NAME     = 'jobfit'
         IMAGE_TAG    = 'latest'
         
-        // Defining Client and Server Image Paths for your ID
+        // Image paths for YOUR project (2401157)
         CLIENT_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-client"
         SERVER_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-server"
 
@@ -90,11 +90,19 @@ spec:
         NEXUS_USER = 'admin'
         NEXUS_PASS = 'Changeme@2025'
 
-        // SonarQube Configuration
+        // SonarQube Configuration (Your Project Key)
         SONAR_PROJECT_KEY   = '2401157-jobfit'
-        // FIX: Using Internal Service URL on Port 80 (Standard for K8s)
-        SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80'
+        // FIX: Using internal K8s URL on Port 80
+        SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
+        // Your Token
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
+
+        // --- NEW ENVIRONMENT VARIABLES (From your snippet) ---
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY    = "pk_test_dml0YWwtbXVkZmlzaC02LmNsZXJrLmFjY291bnRzLmRldiQ"
+        NEXT_PUBLIC_CLERK_FRONTEND_API       = "vital-mudfish-6.clerk.accounts.dev"
+        NEXT_PUBLIC_CONVEX_URL               = "https://flippant-goshawk-377.convex.cloud"
+        NEXT_PUBLIC_STREAM_API_KEY           = "muytsbs2rpay"
+        NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER = "true"
     }
 
     stages {
@@ -106,7 +114,7 @@ spec:
                         sh '''
                         echo "📦 Installing Client Dependencies..."
                         npm install
-                        echo "🏗️ Building React App..."
+                        echo "🏗️ Building Frontend..."
                         npm run build
                         '''
                     }
@@ -132,27 +140,33 @@ spec:
                 container('dind') {
                     script {
                         // --- FIX FOR 429 RATE LIMIT ---
-                        // We use sed to switch DockerHub calls to AWS Public Mirror dynamically
                         echo "🔧 Switching to AWS Mirror to bypass Docker Hub limits..."
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
                         
-                        // Safety cleanup in case 'nexus' prefix was left in files
+                        // Safety cleanup for old prefixes
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
-                        sh '''
-                        # Wait for Docker Daemon to be fully up
+                        sh """
+                        # Wait for Docker Daemon
                         while ! docker info > /dev/null 2>&1; do echo "Waiting for Docker..."; sleep 3; done
                         
-                        echo "🐳 Building Client Image..."
-                        docker build -t ${CLIENT_IMAGE}:${IMAGE_TAG} ./client
+                        echo "🐳 Building Client Image (with Build Args)..."
+                        # Passing the new variables as build arguments
+                        docker build \\
+                            --build-arg NEXT_PUBLIC_CONVEX_URL="${NEXT_PUBLIC_CONVEX_URL}" \\
+                            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \\
+                            --build-arg NEXT_PUBLIC_CLERK_FRONTEND_API="${NEXT_PUBLIC_CLERK_FRONTEND_API}" \\
+                            --build-arg NEXT_PUBLIC_STREAM_API_KEY="${NEXT_PUBLIC_STREAM_API_KEY}" \\
+                            --build-arg NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER="${NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER}" \\
+                            -t ${CLIENT_IMAGE}:${IMAGE_TAG} ./client
 
                         echo "🐳 Building Server Image..."
                         docker build -t ${SERVER_IMAGE}:${IMAGE_TAG} ./server
-                        '''
+                        """
                     }
                 }
             }
@@ -161,12 +175,12 @@ spec:
         stage('SonarQube Analysis') {
             steps {
                 container('sonar-scanner') {
-                    // Direct CLI scan using the hardcoded token and internal URL
+                    // Re-enabled SonarQube with correct internal URL
                     sh """
                     sonar-scanner \
                       -Dsonar.projectKey=2401157-jobfit \
                       -Dsonar.sources=. \
-                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80
+                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
                       -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
                     """
                 }
@@ -201,7 +215,6 @@ spec:
                 container('kubectl') {
                     sh """
                     echo "📦 Applying Kubernetes manifests..."
-                    // Apply files from root directory
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
 
