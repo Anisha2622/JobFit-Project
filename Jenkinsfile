@@ -73,7 +73,8 @@ spec:
     environment {
         NAMESPACE = "2401157"
 
-        REGISTRY = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        REGISTRY = "nexus-docker.nexus.svc.cluster.local:8085"
+
 
         // Final image tags for Kubernetes
         CLIENT_IMAGE = "${REGISTRY}/${NAMESPACE}/jobfit-client:v1"
