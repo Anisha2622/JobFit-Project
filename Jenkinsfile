@@ -112,8 +112,17 @@ spec:
                 container('node') {
                     dir('client') {
                         sh '''
-                        echo "📦 Installing Client Dependencies..."
-              
+                        echo "📦 Installing ALL Client Dependencies (including Dev)..."
+                        
+                        # Force install dev dependencies to ensure react-scripts is found
+                        npm install --include=dev
+                        
+                        # Verify react-scripts exists
+                        if [ ! -f "node_modules/.bin/react-scripts" ]; then
+                            echo "⚠️ react-scripts missing! Installing manually..."
+                            npm install react-scripts --save-dev
+                        fi
+
                         echo "🏗️ Building Frontend..."
                         npm run build
                         '''
