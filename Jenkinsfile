@@ -91,7 +91,7 @@ spec:
 
         // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
-        SONAR_HOST_URL      = 'http://sonarqube.imcc.com'
+        SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80'
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
     }
 
@@ -160,10 +160,10 @@ spec:
                 container('sonar-scanner') {
                     sh """
                     sonar-scanner \
-                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                      -Dsonar.projectKey=2401157-jobfit\
                       -Dsonar.sources=. \
-                      -Dsonar.host.url=${SONAR_HOST_URL} \
-                      -Dsonar.login=${SONAR_PROJECT_TOKEN}
+                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80
+                      -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
                     """
                 }
             }
