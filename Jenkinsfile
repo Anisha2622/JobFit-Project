@@ -84,6 +84,8 @@ spec:
         APP_NAME  = 'jobfit'
         // Using LOCAL tag so K8s can find it without pulling
         IMAGE_TAG = 'local' 
+        
+        // FIX: Use simple names without registry URL to avoid ErrImageNeverPull
         CLIENT_IMAGE = "jobfit-client"
         SERVER_IMAGE = "jobfit-server"
 
