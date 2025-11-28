@@ -181,6 +181,15 @@ spec:
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
 
+                    echo "🔧 Forcing ImagePullPolicy to Never (Required for Local Images)..."
+                    # Patch deployment to ensure it uses local images and does not try to pull from internet
+                    kubectl patch deployment client-deployment -n ${NAMESPACE} -p '{"spec":{"template":{"spec":{"containers":[{"name":"client","imagePullPolicy":"Never"}]}}}}'
+                    kubectl patch deployment server-deployment -n ${NAMESPACE} -p '{"spec":{"template":{"spec":{"containers":[{"name":"server","imagePullPolicy":"Never"}]}}}}'
+
+                    echo "🔁 Updating images in deployments..."
+                    kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
+                    kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
+                    
                     echo "🔄 Restarting pods to pick up new local image..."
                     kubectl rollout restart deployment/client-deployment -n ${NAMESPACE}
                     kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
