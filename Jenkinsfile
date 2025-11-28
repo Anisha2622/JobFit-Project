@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    jenkins/label: "2401157-jobfit-anisha-1-mggxr"
+    jenkins/label: "2401157-jobfit-agent"
 spec:
   restartPolicy: Never
   nodeSelector:
@@ -59,7 +59,7 @@ spec:
       image: jenkins/inbound-agent:3345.v03dee9b_f88fc-1
       env:
         - name: JENKINS_AGENT_NAME
-          value: "2401157-jobfit-anisha-1-mggxr-tcg6j-kntxd"
+          value: "2401157-jobfit-agent"
         - name: JENKINS_AGENT_WORKDIR
           value: "/home/jenkins/agent"
       resources:
@@ -81,17 +81,18 @@ spec:
         REGISTRY     = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
         APP_NAME     = 'jobfit'
         IMAGE_TAG    = 'latest'
-        // Image paths matching Nexus structure
+        
+        // Defining Client and Server Image Paths for your ID
         CLIENT_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-client"
         SERVER_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-server"
 
-        // Nexus Credentials (Unchanged)
+        // Nexus Credentials (Hardcoded)
         NEXUS_USER = 'admin'
         NEXUS_PASS = 'Changeme@2025'
 
         // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
-        // FIX: Changed port 9000 -> 80 for internal Kubernetes service communication
+        // FIX: Using Internal Service URL on Port 80 (Standard for K8s)
         SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80'
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
     }
@@ -131,18 +132,19 @@ spec:
                 container('dind') {
                     script {
                         // --- FIX FOR 429 RATE LIMIT ---
+                        // We use sed to switch DockerHub calls to AWS Public Mirror dynamically
                         echo "🔧 Switching to AWS Mirror to bypass Docker Hub limits..."
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
                         
-                        // Backup fix for nexus prefix in Dockerfiles
+                        // Safety cleanup in case 'nexus' prefix was left in files
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
                         sh '''
-                        # Wait for Docker Daemon
+                        # Wait for Docker Daemon to be fully up
                         while ! docker info > /dev/null 2>&1; do echo "Waiting for Docker..."; sleep 3; done
                         
                         echo "🐳 Building Client Image..."
@@ -159,12 +161,13 @@ spec:
         stage('SonarQube Analysis') {
             steps {
                 container('sonar-scanner') {
+                    // Direct CLI scan using the hardcoded token and internal URL
                     sh """
                     sonar-scanner \
-                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                      -Dsonar.projectKey=2401157-jobfit \
                       -Dsonar.sources=. \
-                      -Dsonar.host.url=${SONAR_HOST_URL} \
-                      -Dsonar.login=${SONAR_PROJECT_TOKEN}
+                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80
+                      -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
                     """
                 }
             }
@@ -198,6 +201,7 @@ spec:
                 container('kubectl') {
                     sh """
                     echo "📦 Applying Kubernetes manifests..."
+                    // Apply files from root directory
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
 
