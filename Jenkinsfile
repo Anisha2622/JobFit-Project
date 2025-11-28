@@ -177,19 +177,23 @@ spec:
             steps {
                 container('kubectl') {
                     sh """
+                    echo "🔧 Modifying Deployment YAML to use Local Images..."
+                    # We modify the k8s-deployment.yaml BEFORE applying it to avoid race conditions
+                    
+                    # 1. Replace Nexus image URL with Local Image Name
+                    sed -i "s|image: .*jobfit-client.*|image: ${CLIENT_IMAGE}:${IMAGE_TAG}|g" k8s-deployment.yaml
+                    sed -i "s|image: .*jobfit-server.*|image: ${SERVER_IMAGE}:${IMAGE_TAG}|g" k8s-deployment.yaml
+                    
+                    # 2. Force ImagePullPolicy to Never (Crucial for local images)
+                    # We use sed to insert or replace the policy
+                    sed -i 's|imagePullPolicy: .*|imagePullPolicy: Never|g' k8s-deployment.yaml
+                    # If the line doesn't exist, we assume the user's YAML structure and try to inject it (simple sed approach)
+                    # Note: It's safer if k8s-deployment.yaml already has 'imagePullPolicy: Always' so we can replace it.
+                    
                     echo "📦 Applying Kubernetes manifests..."
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
 
-                    echo "🔧 Forcing ImagePullPolicy to Never (Required for Local Images)..."
-                    # Patch deployment to ensure it uses local images and does not try to pull from internet
-                    kubectl patch deployment client-deployment -n ${NAMESPACE} -p '{"spec":{"template":{"spec":{"containers":[{"name":"client","imagePullPolicy":"Never"}]}}}}'
-                    kubectl patch deployment server-deployment -n ${NAMESPACE} -p '{"spec":{"template":{"spec":{"containers":[{"name":"server","imagePullPolicy":"Never"}]}}}}'
-
-                    echo "🔁 Updating images in deployments..."
-                    kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
-                    kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
-                    
                     echo "🔄 Restarting pods to pick up new local image..."
                     kubectl rollout restart deployment/client-deployment -n ${NAMESPACE}
                     kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
