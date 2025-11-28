@@ -113,7 +113,7 @@ spec:
                     dir('client') {
                         sh '''
                         echo "📦 Installing Client Dependencies..."
-                        npm install
+              
                         echo "🏗️ Building Frontend..."
                         npm run build
                         '''
