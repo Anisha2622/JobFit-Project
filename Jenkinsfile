@@ -150,6 +150,9 @@ spec:
 
                         echo "🐳 Building Server Image (Local)..."
                         docker build -t ${SERVER_IMAGE}:${IMAGE_TAG} ./server
+                        
+                        echo "✅ Verifying Images exist..."
+                        docker images | grep jobfit
                         """
                     }
                 }
@@ -181,17 +184,19 @@ spec:
                     kubectl delete deployment client-deployment server-deployment -n ${NAMESPACE} --ignore-not-found=true
 
                     echo "🔧 Modifying Deployment YAML to use Local Images..."
-                    # Replace Nexus image URL with Local Image Name
+                    # 1. Replace Image Name
                     sed -i "s|image: .*jobfit-client.*|image: ${CLIENT_IMAGE}:${IMAGE_TAG}|g" k8s-deployment.yaml
                     sed -i "s|image: .*jobfit-server.*|image: ${SERVER_IMAGE}:${IMAGE_TAG}|g" k8s-deployment.yaml
+                    
+                    # 2. INJECT ImagePullPolicy: Never directly into the YAML before applying
+                    # This is safer than patching afterwards because it prevents the first pull attempt.
+                    # We assume standard indentation (6 spaces) for the image property.
+                    sed -i "s|image: ${CLIENT_IMAGE}:${IMAGE_TAG}|image: ${CLIENT_IMAGE}:${IMAGE_TAG}\\n        imagePullPolicy: Never|g" k8s-deployment.yaml
+                    sed -i "s|image: ${SERVER_IMAGE}:${IMAGE_TAG}|image: ${SERVER_IMAGE}:${IMAGE_TAG}\\n        imagePullPolicy: Never|g" k8s-deployment.yaml
                     
                     echo "📦 Applying Kubernetes manifests..."
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
-
-                    echo "🔧 Forcing ImagePullPolicy to Never (Critical for local builds)..."
-                    kubectl patch deployment client-deployment -n ${NAMESPACE} -p '{"spec":{"template":{"spec":{"containers":[{"name":"client","imagePullPolicy":"Never"}]}}}}'
-                    kubectl patch deployment server-deployment -n ${NAMESPACE} -p '{"spec":{"template":{"spec":{"containers":[{"name":"server","imagePullPolicy":"Never"}]}}}}'
 
                     echo "✅ Checking rollout status..."
                     # If rollout fails, print logs automatically to debug faster
