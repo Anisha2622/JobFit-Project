@@ -85,12 +85,13 @@ spec:
         CLIENT_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-client"
         SERVER_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-server"
 
-        // Nexus Credentials (Hardcoded)
+        // Nexus Credentials (Unchanged)
         NEXUS_USER = 'admin'
         NEXUS_PASS = 'Changeme@2025'
 
         // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
+        // FIX: Changed port 9000 -> 80 for internal Kubernetes service communication
         SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80'
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
     }
@@ -160,10 +161,10 @@ spec:
                 container('sonar-scanner') {
                     sh """
                     sonar-scanner \
-                      -Dsonar.projectKey=2401157-jobfit\
+                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                       -Dsonar.sources=. \
-                      -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:80
-                      -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
+                      -Dsonar.host.url=${SONAR_HOST_URL} \
+                      -Dsonar.login=${SONAR_PROJECT_TOKEN}
                     """
                 }
             }
