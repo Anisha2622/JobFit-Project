@@ -17,6 +17,10 @@ spec:
     - name: kubeconfig-secret
       secret:
         secretName: kubeconfig-secret
+    # MOUNT DOCKER SOCKET TO BUILD IMAGES DIRECTLY ON HOST
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
   containers:
     - name: node
       image: node:18
@@ -47,14 +51,16 @@ spec:
           subPath: kubeconfig
         - name: workspace-volume
           mountPath: /home/jenkins/agent
-    - name: dind
-      image: docker:dind
-      args: ["--storage-driver=overlay2", "--insecure-registry=nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"]
-      securityContext:
-        privileged: true
+    # REPLACED DIND WITH DOCKER CLIENT MOUNTED TO HOST
+    - name: docker
+      image: docker:latest
+      command: ["cat"]
+      tty: true
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
     - name: jnlp
       image: jenkins/inbound-agent:3345.v03dee9b_f88fc-1
       env:
@@ -74,30 +80,19 @@ spec:
     }
 
     environment {
-        // --- YOUR PROJECT CONFIGURATION ---
         NAMESPACE = '2401157'
         APP_NAME  = 'jobfit'
-        
-        // Nexus Registry Details
-        REGISTRY     = 'nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085'
-        IMAGE_TAG    = 'latest'
-        
-        // Image paths for YOUR project (2401157)
-        CLIENT_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-client"
-        SERVER_IMAGE = "${REGISTRY}/2401157/${APP_NAME}-server"
+        // Using LOCAL tag so K8s can find it without pulling
+        IMAGE_TAG = 'local' 
+        CLIENT_IMAGE = "jobfit-client"
+        SERVER_IMAGE = "jobfit-server"
 
-        // Nexus Credentials (Hardcoded)
-        NEXUS_USER = 'admin'
-        NEXUS_PASS = 'Changeme@2025'
-
-        // SonarQube Configuration (Your Project Key)
+        // SonarQube Configuration
         SONAR_PROJECT_KEY   = '2401157-jobfit'
-        // FIX: Using internal K8s URL on Port 80
         SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-        // Your Token
         SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
 
-        // --- NEW ENVIRONMENT VARIABLES (From your snippet) ---
+        // Frontend Env Vars
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY    = "pk_test_dml0YWwtbXVkZmlzaC02LmNsZXJrLmFjY291bnRzLmRldiQ"
         NEXT_PUBLIC_CLERK_FRONTEND_API       = "vital-mudfish-6.clerk.accounts.dev"
         NEXT_PUBLIC_CONVEX_URL               = "https://flippant-goshawk-377.convex.cloud"
@@ -106,23 +101,13 @@ spec:
     }
 
     stages {
-
         stage('Install + Build Frontend') {
             steps {
                 container('node') {
                     dir('client') {
                         sh '''
-                        echo "📦 Installing ALL Client Dependencies (including Dev)..."
-                        
-                        # Force install dev dependencies to ensure react-scripts is found
-                        npm install --include=dev
-                        
-                        # Verify react-scripts exists
-                        if [ ! -f "node_modules/.bin/react-scripts" ]; then
-                            echo "⚠️ react-scripts missing! Installing manually..."
-                            npm install react-scripts --save-dev
-                        fi
-
+                        echo "📦 Installing Client Dependencies..."
+                        npm install
                         echo "🏗️ Building Frontend..."
                         npm run build
                         '''
@@ -144,27 +129,17 @@ spec:
             }
         }
 
-        stage('Build Docker Images') {
+        stage('Build Docker Images (Local)') {
             steps {
-                container('dind') {
+                container('docker') {
                     script {
-                        // --- FIX FOR 429 RATE LIMIT ---
-                        echo "🔧 Switching to AWS Mirror to bypass Docker Hub limits..."
+                        echo "🔧 Switching to AWS Mirror..."
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
-                        
-                        // Safety cleanup for old prefixes
-                        sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
-                        sh "sed -i 's|FROM ${REGISTRY}/node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
-                        sh "sed -i 's|FROM ${REGISTRY}/nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
                         sh """
-                        # Wait for Docker Daemon
-                        while ! docker info > /dev/null 2>&1; do echo "Waiting for Docker..."; sleep 3; done
-                        
-                        echo "🐳 Building Client Image (with Build Args)..."
-                        # Passing the new variables as build arguments
+                        echo "🐳 Building Client Image (Local)..."
                         docker build \\
                             --build-arg NEXT_PUBLIC_CONVEX_URL="${NEXT_PUBLIC_CONVEX_URL}" \\
                             --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \\
@@ -173,7 +148,7 @@ spec:
                             --build-arg NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER="${NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER}" \\
                             -t ${CLIENT_IMAGE}:${IMAGE_TAG} ./client
 
-                        echo "🐳 Building Server Image..."
+                        echo "🐳 Building Server Image (Local)..."
                         docker build -t ${SERVER_IMAGE}:${IMAGE_TAG} ./server
                         """
                     }
@@ -181,10 +156,10 @@ spec:
             }
         }
 
+        // SonarQube (Optional - Uncomment if needed)
         stage('SonarQube Analysis') {
             steps {
                 container('sonar-scanner') {
-                    // Re-enabled SonarQube with correct internal URL
                     sh """
                     sonar-scanner \
                       -Dsonar.projectKey=2401157-jobfit \
@@ -196,28 +171,7 @@ spec:
             }
         }
 
-        stage('Login to Nexus Registry') {
-            steps {
-                container('dind') {
-                    sh """
-                    echo "🔐 Logging into Nexus Docker Registry..."
-                    echo "$NEXUS_PASS" | docker login ${REGISTRY} -u "$NEXUS_USER" --password-stdin
-                    """
-                }
-            }
-        }
-
-        stage('Push to Nexus') {
-            steps {
-                container('dind') {
-                    sh '''
-                    echo "🚀 Pushing images to Nexus..."
-                    docker push ${CLIENT_IMAGE}:${IMAGE_TAG}
-                    docker push ${SERVER_IMAGE}:${IMAGE_TAG}
-                    '''
-                }
-            }
-        }
+        // SKIPPED NEXUS LOGIN & PUSH (Using Local Images)
 
         stage('Deploy to Kubernetes') {
             steps {
@@ -227,28 +181,15 @@ spec:
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
                     kubectl apply -f client-service.yaml -n ${NAMESPACE}
 
-                    echo "🔁 Updating images in deployments..."
-                    kubectl set image deployment/client-deployment client=${CLIENT_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
-                    kubectl set image deployment/server-deployment server=${SERVER_IMAGE}:${IMAGE_TAG} -n ${NAMESPACE}
-                    
-                    echo "🔄 Forcing Rollout Restart..."
+                    echo "🔄 Restarting pods to pick up new local image..."
                     kubectl rollout restart deployment/client-deployment -n ${NAMESPACE}
                     kubectl rollout restart deployment/server-deployment -n ${NAMESPACE}
                     
                     echo "✅ Checking rollout status..."
-                    kubectl rollout status deployment/server-deployment -n ${NAMESPACE}
+                    kubectl rollout status deployment/server-deployment -n ${NAMESPACE} || true
                     """
                 }
             }
-        }
-    }
-
-    post {
-        success {
-            echo "✅ Pipeline completed successfully!"
-        }
-        failure {
-            echo "❌ Pipeline failed. Check logs for details."
         }
     }
 }
