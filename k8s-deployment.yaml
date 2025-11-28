@@ -1,15 +1,15 @@
-# -------------------
+# ============================================
 # 1. NAMESPACE
-# -------------------
+# ============================================
 apiVersion: v1
 kind: Namespace
 metadata:
   name: "2401157"
 
 ---
-# -------------------
+# ============================================
 # 2. SERVER (BACKEND) DEPLOYMENT
-# -------------------
+# ============================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,26 +25,24 @@ spec:
       labels:
         app: server
     spec:
-      # --- AUTH FOR NEXUS ---
       imagePullSecrets:
         - name: nexus-secret
       containers:
       - name: server
-        # Matches the Nexus URL from Jenkinsfile
         image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-server:v1
+        imagePullPolicy: Always
         ports:
         - containerPort: 5000
         env:
-        # UPDATED WITH YOUR SPECIFIC CREDENTIALS
         - name: MONGO_URL
           value: "mongodb://2401157:anisha@mongodb.imcc.com/jobfit"
         - name: PORT
           value: "5000"
 
 ---
-# -------------------
-# 3. SERVER SERVICE
-# -------------------
+# ============================================
+# 3. SERVER (BACKEND) SERVICE
+# ============================================
 apiVersion: v1
 kind: Service
 metadata:
@@ -54,15 +52,14 @@ spec:
   selector:
     app: server
   ports:
-    - protocol: TCP
-      port: 5000
+    - port: 5000
       targetPort: 5000
   type: ClusterIP
 
 ---
-# -------------------
+# ============================================
 # 4. CLIENT (FRONTEND) DEPLOYMENT
-# -------------------
+# ============================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -78,12 +75,28 @@ spec:
       labels:
         app: client
     spec:
-      # --- AUTH FOR NEXUS ---
       imagePullSecrets:
         - name: nexus-secret
       containers:
       - name: client
-        # Matches the Nexus URL from Jenkinsfile
         image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-client:v1
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
+
+---
+# ============================================
+# 5. CLIENT (FRONTEND) SERVICE
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-service
+  namespace: "2401157"
+spec:
+  selector:
+    app: client
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
