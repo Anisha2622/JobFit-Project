@@ -1,15 +1,15 @@
-# ============================================
+# -------------------
 # 1. NAMESPACE
-# ============================================
+# -------------------
 apiVersion: v1
 kind: Namespace
 metadata:
   name: "2401157"
 
 ---
-# ============================================
-# 2. SERVER (BACKEND) DEPLOYMENT
-# ============================================
+# -------------------
+# 2. SERVER DEPLOYMENT
+# -------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,24 +25,24 @@ spec:
       labels:
         app: server
     spec:
-      imagePullSecrets:
-        - name: nexus-secret
       containers:
       - name: server
-        image: CORRECT_SERVICE_NAME.nexus.svc.cluster.local:8085/2401157/jobfit-server:v1
-        imagePullPolicy: Always
+        # Using local image tag matching Jenkinsfile
+        image: jobfit-server:local
+        imagePullPolicy: Never
         ports:
         - containerPort: 5000
         env:
+        # YOUR COLLEGE MONGO CREDENTIALS
         - name: MONGO_URL
           value: "mongodb://2401157:anisha@mongodb.imcc.com/jobfit"
         - name: PORT
           value: "5000"
 
 ---
-# ============================================
-# 3. SERVER (BACKEND) SERVICE
-# ============================================
+# -------------------
+# 3. SERVER SERVICE
+# -------------------
 apiVersion: v1
 kind: Service
 metadata:
@@ -52,14 +52,15 @@ spec:
   selector:
     app: server
   ports:
-    - port: 5000
+    - protocol: TCP
+      port: 5000
       targetPort: 5000
   type: ClusterIP
 
 ---
-# ============================================
-# 4. CLIENT (FRONTEND) DEPLOYMENT
-# ============================================
+# -------------------
+# 4. CLIENT DEPLOYMENT
+# -------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -75,30 +76,10 @@ spec:
       labels:
         app: client
     spec:
-      imagePullSecrets:
-        - name: nexus-secret
       containers:
       - name: client
-        
-        image: CORRECT_SERVICE_NAME.nexus.svc.cluster.local:8085/2401157/jobfit-client:v1
-
-        imagePullPolicy: Always
+        # Using local image tag matching Jenkinsfile
+        image: jobfit-client:local
+        imagePullPolicy: Never
         ports:
         - containerPort: 80
-
----
-# ============================================
-# 5. CLIENT (FRONTEND) SERVICE
-# ============================================
-apiVersion: v1
-kind: Service
-metadata:
-  name: client-service
-  namespace: "2401157"
-spec:
-  selector:
-    app: client
-  ports:
-    - port: 80
-      targetPort: 80
-  type: ClusterIP
