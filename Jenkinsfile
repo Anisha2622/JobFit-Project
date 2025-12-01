@@ -17,25 +17,11 @@ spec:
     - name: kubeconfig-secret
       secret:
         secretName: kubeconfig-secret
-    # MOUNT DOCKER SOCKET TO BUILD IMAGES DIRECTLY ON YOUR LAPTOP
+    # MOUNT DOCKER SOCKET (Critical for Local Builds)
     - name: docker-sock
       hostPath:
         path: /var/run/docker.sock
   containers:
-    - name: node
-      image: node:18
-      tty: true
-      command: ["cat"]
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
-    - name: sonar-scanner
-      image: sonarsource/sonar-scanner-cli
-      tty: true
-      command: ["cat"]
-      volumeMounts:
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
     - name: kubectl
       image: bitnami/kubectl:latest
       tty: true
@@ -51,7 +37,6 @@ spec:
           subPath: kubeconfig
         - name: workspace-volume
           mountPath: /home/jenkins/agent
-    # USE HOST DOCKER
     - name: docker
       image: docker:latest
       command: ["cat"]
@@ -81,19 +66,12 @@ spec:
 
     environment {
         NAMESPACE = '2401157'
-        APP_NAME  = 'jobfit'
-        // Using LOCAL tag so K8s can find it without pulling from internet
-        IMAGE_TAG = 'local' 
-        CLIENT_IMAGE = "jobfit-client"
-        SERVER_IMAGE = "jobfit-server"
+        
+        // Simple Local Image Names
+        CLIENT_IMAGE = "jobfit-client:local"
+        SERVER_IMAGE = "jobfit-server:local"
 
-        // SonarQube Configuration
-        SONAR_PROJECT_KEY   = '2401157-jobfit'
-        // Internal K8s URL on Port 80 (Standard for internal services)
-        SONAR_HOST_URL      = 'http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
-        SONAR_PROJECT_TOKEN = 'sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa'
-
-        // Frontend Env Vars (These will be baked into the image)
+        // Frontend Variables
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY    = "pk_test_dml0YWwtbXVkZmlzaC02LmNsZXJrLmFjY291bnRzLmRldiQ"
         NEXT_PUBLIC_CLERK_FRONTEND_API       = "vital-mudfish-6.clerk.accounts.dev"
         NEXT_PUBLIC_CONVEX_URL               = "https://flippant-goshawk-377.convex.cloud"
@@ -102,75 +80,28 @@ spec:
     }
 
     stages {
-        stage('Install + Build Frontend') {
-            steps {
-                container('node') {
-                    dir('client') {
-                        sh '''
-                        echo "📦 Installing Client Dependencies..."
-                        npm install
-                        echo "🏗️ Building Frontend..."
-                        npm run build
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Install Backend') {
-            steps {
-                container('node') {
-                    dir('server') {
-                        sh '''
-                        echo "📦 Installing Server Dependencies..."
-                        npm install
-                        '''
-                    }
-                }
-            }
-        }
-
         stage('Build Docker Images (Local)') {
             steps {
                 container('docker') {
                     script {
                         echo "🔧 Switching to AWS Mirror to prevent Rate Limiting..."
+                        // Fix Dockerfiles to use AWS Mirror
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./client/Dockerfile"
                         sh "sed -i 's|FROM node|FROM public.ecr.aws/docker/library/node|g' ./server/Dockerfile"
                         sh "sed -i 's|FROM nginx|FROM public.ecr.aws/docker/library/nginx|g' ./client/Dockerfile"
 
                         sh """
-                        echo "🐳 Building Client Image (Local)..."
+                        echo "🐳 Building Client Image..."
                         docker build \\
                             --build-arg NEXT_PUBLIC_CONVEX_URL="${NEXT_PUBLIC_CONVEX_URL}" \\
                             --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \\
                             --build-arg NEXT_PUBLIC_CLERK_FRONTEND_API="${NEXT_PUBLIC_CLERK_FRONTEND_API}" \\
                             --build-arg NEXT_PUBLIC_STREAM_API_KEY="${NEXT_PUBLIC_STREAM_API_KEY}" \\
                             --build-arg NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER="${NEXT_PUBLIC_DISABLE_CONVEX_PRERENDER}" \\
-                            -t ${CLIENT_IMAGE}:${IMAGE_TAG} ./client
+                            -t ${CLIENT_IMAGE} ./client
 
-                        echo "🐳 Building Server Image (Local)..."
-                        docker build -t ${SERVER_IMAGE}:${IMAGE_TAG} ./server
-                        
-                        echo "✅ Verifying Images exist..."
-                        docker images | grep jobfit
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('SonarQube Analysis') {
-            steps {
-                container('sonar-scanner') {
-                    // Using catchError so pipeline continues even if Sonar fails
-                    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                        sh """
-                        sonar-scanner \
-                          -Dsonar.projectKey=2401157-jobfit \
-                          -Dsonar.sources=. \
-                          -Dsonar.host.url=http://my-sonarqube-sonarqube.sonarqube.svc.cluster.local:9000 \
-                          -Dsonar.login=sqp_ebccbe7e93e8db6ee0b16e52ceeec7bcd63479fa
+                        echo "🐳 Building Server Image..."
+                        docker build -t ${SERVER_IMAGE} ./server
                         """
                     }
                 }
@@ -186,12 +117,12 @@ spec:
 
                     echo "🔧 Updating YAML to use Local Images..."
                     # 1. Update Image Names
-                    sed -i "s|image: .*jobfit-client.*|image: ${CLIENT_IMAGE}:${IMAGE_TAG}|g" k8s-deployment.yaml
-                    sed -i "s|image: .*jobfit-server.*|image: ${SERVER_IMAGE}:${IMAGE_TAG}|g" k8s-deployment.yaml
+                    sed -i "s|image: .*jobfit-client.*|image: ${CLIENT_IMAGE}|g" k8s-deployment.yaml
+                    sed -i "s|image: .*jobfit-server.*|image: ${SERVER_IMAGE}|g" k8s-deployment.yaml
                     
                     # 2. Force ImagePullPolicy to Never (Crucial!)
-                    sed -i "s|image: ${CLIENT_IMAGE}:${IMAGE_TAG}|image: ${CLIENT_IMAGE}:${IMAGE_TAG}\\n        imagePullPolicy: Never|g" k8s-deployment.yaml
-                    sed -i "s|image: ${SERVER_IMAGE}:${IMAGE_TAG}|image: ${SERVER_IMAGE}:${IMAGE_TAG}\\n        imagePullPolicy: Never|g" k8s-deployment.yaml
+                    sed -i "s|image: ${CLIENT_IMAGE}|image: ${CLIENT_IMAGE}\\n        imagePullPolicy: Never|g" k8s-deployment.yaml
+                    sed -i "s|image: ${SERVER_IMAGE}|image: ${SERVER_IMAGE}\\n        imagePullPolicy: Never|g" k8s-deployment.yaml
                     
                     echo "📦 Applying Kubernetes manifests..."
                     kubectl apply -f k8s-deployment.yaml -n ${NAMESPACE}
