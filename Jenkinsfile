@@ -73,7 +73,8 @@ spec:
     environment {
         NAMESPACE = "2401157"
 
-        REGISTRY = "nexus-docker.nexus.svc.cluster.local:8085"
+        REGISTRY = "CORRECT_SERVICE_NAME.nexus.svc.cluster.local:8085"
+
 
 
         // Final image tags for Kubernetes
@@ -116,6 +117,15 @@ spec:
                 }
             }
         }
+
+        stage('Check Nexus DNS') {
+            steps {
+              container('kubectl') {
+                  sh "kubectl get svc -A | grep -i nexus"
+              }
+           }
+        }
+
 
         stage('SonarQube Analysis') {
             steps {

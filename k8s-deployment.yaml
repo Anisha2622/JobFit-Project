@@ -29,7 +29,7 @@ spec:
         - name: nexus-secret
       containers:
       - name: server
-        image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-server:v1
+        image: CORRECT_SERVICE_NAME.nexus.svc.cluster.local:8085/2401157/jobfit-server:v1
         imagePullPolicy: Always
         ports:
         - containerPort: 5000
@@ -79,7 +79,9 @@ spec:
         - name: nexus-secret
       containers:
       - name: client
-        image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401157/jobfit-client:v1
+        
+        image: CORRECT_SERVICE_NAME.nexus.svc.cluster.local:8085/2401157/jobfit-client:v1
+
         imagePullPolicy: Always
         ports:
         - containerPort: 80
